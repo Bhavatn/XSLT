@@ -1,0 +1,674 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+
+<!-- Functions available in this style sheet: -->
+<!--   FormatStationVal -->
+<!--   FormatDMSAngle (called from FormatAngle, FormatAzimuth and FormatLatLong) -->
+<!--   FormatQuadrantBearing (called from FormatAzimuth) -->
+<!--   FormatAngle (primary function) -->
+<!--   FormatAzimuth (primary function) -->
+<!--   FormatLatLong (primary function) -->
+<!--   FormatGrade (primary function) -->
+<!--   StripTrailingZeros -->
+<!--   PadRight -->
+<!--   PadLeft -->
+<!--   NewLine -->
+
+
+<!-- **************************************************************** -->
+<!-- *************** Return Formatted Station Value ***************** -->
+<!-- **************************************************************** -->
+<xsl:template name="FormatStationVal">
+  <xsl:param name="stationVal"/>
+  <xsl:param name="zoneVal" select="''"/>
+  <xsl:param name="definedFmt" select="''"/>
+  <xsl:param name="stationIndexIncrement" select="''"/>
+  <xsl:param name="decPlDefnStr" select="''"/>
+
+  <xsl:variable name="decPl">
+    <xsl:choose>
+      <xsl:when test="$decPlDefnStr != ''">
+        <xsl:value-of select="$decPlDefnStr"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$DecPl3"/>  <!-- Default to 3 decimal places -->
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:choose>
+    <xsl:when test="string(number($stationVal)) = 'NaN'">
+      <xsl:value-of select="format-number($stationVal, $decPl, 'Standard')"/>  <!-- Return appropriate formatted null value -->
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:variable name="formatStyle">
+        <xsl:choose>
+          <xsl:when test="$definedFmt = ''">
+            <xsl:value-of select="/JOBFile/Environment/DisplaySettings/StationingFormat"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="$definedFmt"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+
+      <xsl:variable name="stnIndexIncrement">
+        <xsl:choose>
+          <xsl:when test="string(number($stationIndexIncrement)) = 'NaN'">
+            <xsl:value-of select="/JOBFile/Environment/DisplaySettings/StationIndexIncrement"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="$stationIndexIncrement"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+
+      <xsl:variable name="stnVal" select="format-number($stationVal * $DistConvFactor, $decPl, 'Standard')"/>
+      <xsl:variable name="signChar">
+        <xsl:if test="$stnVal &lt; 0.0">-</xsl:if>
+      </xsl:variable>
+
+      <xsl:variable name="absStnVal" select="concat(substring('-',2 - ($stnVal &lt; 0)), '1') * $stnVal"/>
+
+      <xsl:variable name="intPart" select="substring-before(format-number($absStnVal, $DecPl3, 'Standard'), '.')"/>
+      <xsl:variable name="decPart" select="substring-after($stnVal, '.')"/>
+
+      <xsl:if test="$formatStyle = '1000.0'">
+        <xsl:value-of select="$stnVal"/>
+      </xsl:if>
+
+      <xsl:if test="$formatStyle = '10+00.0'">
+        <xsl:choose>
+          <xsl:when test="string-length($intPart) &gt; 2">
+            <xsl:value-of select="concat($signChar, substring($intPart, 1, string-length($intPart) - 2),
+                                         '+', substring($intPart, string-length($intPart) - 1, 2))"/>
+            <xsl:if test="$decPart != ''">
+              <xsl:text>.</xsl:text>
+              <xsl:value-of select="$decPart"/>
+            </xsl:if>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="concat($signChar, '0+', substring('00', 1, 2 - string-length($intPart)), $intPart)"/>
+            <xsl:if test="$decPart != ''">
+              <xsl:text>.</xsl:text>
+              <xsl:value-of select="$decPart"/>
+            </xsl:if>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:if>
+
+      <xsl:if test="$formatStyle = '1+000.0'">
+        <xsl:choose>
+          <xsl:when test="string-length($intPart) &gt; 3">
+            <xsl:value-of select="concat($signChar, substring($intPart, 1, string-length($intPart) - 3),
+                                         '+', substring($intPart, string-length($intPart) - 2, 3))"/>
+            <xsl:if test="$decPart != ''">
+              <xsl:text>.</xsl:text>
+              <xsl:value-of select="$decPart"/>
+            </xsl:if>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="concat($signChar, '0+', substring('000', 1, 3 - string-length($intPart)), $intPart)"/>
+            <xsl:if test="$decPart != ''">
+              <xsl:text>.</xsl:text>
+              <xsl:value-of select="$decPart"/>
+            </xsl:if>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:if>
+
+      <xsl:if test="$formatStyle = 'StationIndex'">
+        <xsl:variable name="intIncrement" select="format-number($stnIndexIncrement * $DistConvFactor, $DecPl0, 'Standard')"/>
+
+        <xsl:variable name="afterPlusDigits" select="string-length($intIncrement)"/>
+        <xsl:variable name="afterPlusZeros" select="substring('000000000000', 1, $afterPlusDigits)"/>
+        <xsl:variable name="afterPlusFmt" select="concat($afterPlusZeros, '.', substring-after($decPl, '.'))"/>
+
+        <xsl:variable name="beforePlus" select="floor($absStnVal div ($stnIndexIncrement * $DistConvFactor))"/>
+        <xsl:variable name="afterPlus" select="$absStnVal - $beforePlus * ($stnIndexIncrement * $DistConvFactor)"/>
+        <xsl:value-of select="concat($signChar, format-number($beforePlus, '#0'), '+', format-number($afterPlus, $afterPlusFmt, 'Standard'))"/>
+      </xsl:if>
+
+      <xsl:if test="$zoneVal != ''">
+        <xsl:value-of select="':'"/>
+        <xsl:value-of select="format-number($zoneVal,'0')"/>
+      </xsl:if>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********************** Format a DMS Angle ********************** -->
+<!-- **************************************************************** -->
+<xsl:template name="FormatDMSAngle">
+  <xsl:param name="decimalAngle"/>
+  <xsl:param name="secDecPlaces" select="0"/>
+  <xsl:param name="useSymbols" select="'true'"/>
+  <xsl:param name="impliedDecimalPt" select="'false'"/>
+  <xsl:param name="dmsSymbols">&#0176;'"</xsl:param>
+
+  <xsl:variable name="degreesSymbol">
+    <xsl:choose>
+      <xsl:when test="$useSymbols = 'true'"><xsl:value-of select="substring($dmsSymbols, 1, 1)"/></xsl:when>  <!-- Degrees symbol ° -->
+      <xsl:otherwise>
+        <xsl:if test="$impliedDecimalPt != 'true'">.</xsl:if>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="minutesSymbol">
+    <xsl:choose>
+      <xsl:when test="$useSymbols = 'true'"><xsl:value-of select="substring($dmsSymbols, 2, 1)"/></xsl:when>
+      <xsl:otherwise></xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="secondsSymbol">
+    <xsl:choose>
+      <xsl:when test="$useSymbols = 'true'"><xsl:value-of select="substring($dmsSymbols, 3, 1)"/></xsl:when>
+      <xsl:otherwise></xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="sign">
+    <xsl:if test="$decimalAngle &lt; '0.0'">-1</xsl:if>
+    <xsl:if test="$decimalAngle &gt;= '0.0'">1</xsl:if>
+  </xsl:variable>
+
+  <xsl:variable name="posDecimalDegrees" select="number($decimalAngle * $sign)"/>
+
+  <xsl:variable name="positiveDecimalDegrees">  <!-- Ensure an angle very close to 360° is treated as 0° -->
+    <xsl:choose>
+      <xsl:when test="(360.0 - $posDecimalDegrees) &lt; 0.00001">
+        <xsl:value-of select="0"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$posDecimalDegrees"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="decPlFmt">
+    <xsl:choose>
+      <xsl:when test="$secDecPlaces = 0"><xsl:value-of select="''"/></xsl:when>
+      <xsl:when test="$secDecPlaces = 1"><xsl:value-of select="'.0'"/></xsl:when>
+      <xsl:when test="$secDecPlaces = 2"><xsl:value-of select="'.00'"/></xsl:when>
+      <xsl:when test="$secDecPlaces = 3"><xsl:value-of select="'.000'"/></xsl:when>
+      <xsl:when test="$secDecPlaces = 4"><xsl:value-of select="'.0000'"/></xsl:when>
+      <xsl:when test="$secDecPlaces = 5"><xsl:value-of select="'.00000'"/></xsl:when>
+      <xsl:when test="$secDecPlaces = 6"><xsl:value-of select="'.000000'"/></xsl:when>
+      <xsl:otherwise><xsl:value-of select="''"/></xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="degrees" select="floor($positiveDecimalDegrees)"/>
+  <xsl:variable name="decimalMinutes" select="number(number($positiveDecimalDegrees - $degrees) * 60 )"/>
+  <xsl:variable name="minutes" select="floor($decimalMinutes)"/>
+  <xsl:variable name="seconds" select="number(number($decimalMinutes - $minutes)*60)"/>
+
+  <xsl:variable name="partiallyNormalisedMinutes">
+    <xsl:if test="number(format-number($seconds, concat('00', $decPlFmt))) = 60"><xsl:value-of select="number($minutes + 1)"/></xsl:if>
+    <xsl:if test="not(number(format-number($seconds, concat('00', $decPlFmt))) = 60)"><xsl:value-of select="$minutes"/></xsl:if>
+  </xsl:variable>
+
+  <xsl:variable name="normalisedSeconds">
+    <xsl:if test="number(format-number($seconds, concat('00', $decPlFmt))) = 60"><xsl:value-of select="0"/></xsl:if>
+    <xsl:if test="not(number(format-number($seconds, concat('00', $decPlFmt))) = 60)"><xsl:value-of select="$seconds"/></xsl:if>
+  </xsl:variable>
+
+  <xsl:variable name="partiallyNormalisedDegrees">
+    <xsl:if test="format-number($partiallyNormalisedMinutes, '0') = '60'"><xsl:value-of select="number($degrees + 1)"/></xsl:if>
+    <xsl:if test="not(format-number($partiallyNormalisedMinutes, '0') = '60')"><xsl:value-of select="$degrees"/></xsl:if>
+  </xsl:variable>
+
+  <xsl:variable name="normalisedDegrees">
+    <xsl:if test="format-number($partiallyNormalisedDegrees, '0') = '360'"><xsl:value-of select="0"/></xsl:if>
+    <xsl:if test="not(format-number($partiallyNormalisedDegrees, '0') = '360')"><xsl:value-of select="$partiallyNormalisedDegrees"/></xsl:if>
+  </xsl:variable>
+
+  <xsl:variable name="normalisedMinutes">
+    <xsl:if test="format-number($partiallyNormalisedMinutes, '00') = '60'"><xsl:value-of select="0"/></xsl:if>
+    <xsl:if test="not(format-number($partiallyNormalisedMinutes, '00') = '60')"><xsl:value-of select="$partiallyNormalisedMinutes"/></xsl:if>
+  </xsl:variable>
+
+  <xsl:if test="$sign = -1">-</xsl:if>
+  <xsl:value-of select="format-number($normalisedDegrees, '0')"/>
+  <xsl:value-of select="$degreesSymbol"/>
+  <xsl:value-of select="format-number($normalisedMinutes, '00')"/>
+  <xsl:value-of select="$minutesSymbol"/>
+  <xsl:choose>
+    <xsl:when test="$useSymbols = 'true'">
+      <xsl:value-of select="format-number($normalisedSeconds, concat('00', $decPlFmt))"/>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="translate(format-number($normalisedSeconds, concat('00', $decPlFmt)), '.', '')"/>
+    </xsl:otherwise>
+  </xsl:choose>
+  <xsl:value-of select="$secondsSymbol"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******************* Format a Quadrant Bearing ****************** -->
+<!-- **************************************************************** -->
+<xsl:template name="FormatQuadrantBearing">
+  <xsl:param name="decimalAngle"/>
+  <xsl:param name="secDecPlaces" select="0"/>
+  <xsl:param name="impliedDecimalPt" select="'false'"/>
+  <xsl:param name="northLbl" select="'N'"/>
+  <xsl:param name="eastLbl" select="'E'"/>
+  <xsl:param name="southLbl" select="'S'"/>
+  <xsl:param name="westLbl" select="'W'"/>
+  <xsl:param name="dmsSymbols">&#0176;'"</xsl:param>
+
+  <xsl:choose>
+    <!-- Null azimuth value -->
+    <xsl:when test="string(number($decimalAngle)) = 'NaN'">
+      <xsl:value-of select="format-number($decimalAngle, $DecPl3, 'Standard')"/>  <!-- Use the defined null format output -->
+    </xsl:when>
+    <!-- There is an azimuth value -->
+    <xsl:otherwise>
+      <xsl:variable name="quadrantAngle">
+        <xsl:if test="($decimalAngle &lt;= 90.0)">
+          <xsl:value-of select="number ( $decimalAngle )"/>
+        </xsl:if>
+        <xsl:if test="($decimalAngle &gt; 90.0) and ($decimalAngle &lt;= 180.0)">
+          <xsl:value-of select="number( 180.0 - $decimalAngle )"/>
+        </xsl:if>
+        <xsl:if test="($decimalAngle &gt; 180.0) and ($decimalAngle &lt; 270.0)">
+          <xsl:value-of select="number( $decimalAngle - 180.0 )"/>
+        </xsl:if>
+        <xsl:if test="($decimalAngle &gt;= 270.0) and ($decimalAngle &lt;= 360.0)">
+          <xsl:value-of select="number( 360.0 - $decimalAngle )"/>
+        </xsl:if>
+      </xsl:variable>
+
+      <xsl:variable name="quadrantPrefix">
+        <xsl:if test="($decimalAngle &lt;= 90.0) or ($decimalAngle &gt;= 270.0)"><xsl:value-of select="$northLbl"/></xsl:if>
+        <xsl:if test="($decimalAngle &gt; 90.0) and ($decimalAngle &lt; 270.0)"><xsl:value-of select="$southLbl"/></xsl:if>
+      </xsl:variable>
+
+      <xsl:variable name="quadrantSuffix">
+        <xsl:if test="($decimalAngle &lt;= 180.0)"><xsl:value-of select="$eastLbl"/></xsl:if>
+        <xsl:if test="($decimalAngle &gt; 180.0)"><xsl:value-of select="$westLbl"/></xsl:if>
+      </xsl:variable>
+
+      <xsl:value-of select="$quadrantPrefix"/>
+      <xsl:choose>
+        <xsl:when test="$AngleUnit = 'DMSDegrees'">
+          <xsl:call-template name="FormatDMSAngle">
+            <xsl:with-param name="decimalAngle" select="$quadrantAngle"/>
+            <xsl:with-param name="secDecPlaces" select="$secDecPlaces"/>
+            <xsl:with-param name="impliedDecimalPt" select="$impliedDecimalPt"/>
+            <xsl:with-param name="dmsSymbols" select="$dmsSymbols"/>
+          </xsl:call-template>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:call-template name="FormatAngle">
+            <xsl:with-param name="theAngle" select="$quadrantAngle"/>
+            <xsl:with-param name="secDecPlaces" select="$secDecPlaces"/>
+            <xsl:with-param name="impliedDecimalPt" select="$impliedDecimalPt"/>
+            <xsl:with-param name="dmsSymbols" select="$dmsSymbols"/>
+          </xsl:call-template>
+        </xsl:otherwise>
+      </xsl:choose>
+      <xsl:value-of select="$quadrantSuffix"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************ Output Angle in Appropriate Format **************** -->
+<!-- **************************************************************** -->
+<xsl:template name="FormatAngle">
+  <xsl:param name="theAngle"/>
+  <xsl:param name="secDecPlaces" select="0"/>
+  <xsl:param name="DMSOutput" select="'false'"/>  <!-- Can be used to force DMS output -->
+  <xsl:param name="useSymbols" select="'true'"/>
+  <xsl:param name="impliedDecimalPt" select="'false'"/>
+  <xsl:param name="gonsDecPlaces" select="5"/>    <!-- Decimal places for gons output -->
+  <xsl:param name="decDegDecPlaces" select="5"/>  <!-- Decimal places for decimal degrees output -->
+  <xsl:param name="outputAsMilligonsOrSecs" select="'false'"/>
+  <xsl:param name="outputAsMilligonsOrSecsSqrd" select="'false'"/>
+  <xsl:param name="dmsSymbols">&#0176;'"</xsl:param>
+
+  <xsl:variable name="gonsDecPl">
+    <xsl:choose>
+      <xsl:when test="$gonsDecPlaces = 1"><xsl:value-of select="$DecPl1"/></xsl:when>
+      <xsl:when test="$gonsDecPlaces = 2"><xsl:value-of select="$DecPl2"/></xsl:when>
+      <xsl:when test="$gonsDecPlaces = 3"><xsl:value-of select="$DecPl3"/></xsl:when>
+      <xsl:when test="$gonsDecPlaces = 4"><xsl:value-of select="$DecPl4"/></xsl:when>
+      <xsl:when test="$gonsDecPlaces = 5"><xsl:value-of select="$DecPl5"/></xsl:when>
+      <xsl:when test="$gonsDecPlaces = 6"><xsl:value-of select="$DecPl6"/></xsl:when>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="decDegDecPl">
+    <xsl:choose>
+      <xsl:when test="$decDegDecPlaces = 1"><xsl:value-of select="$DecPl1"/></xsl:when>
+      <xsl:when test="$decDegDecPlaces = 2"><xsl:value-of select="$DecPl2"/></xsl:when>
+      <xsl:when test="$decDegDecPlaces = 3"><xsl:value-of select="$DecPl3"/></xsl:when>
+      <xsl:when test="$decDegDecPlaces = 4"><xsl:value-of select="$DecPl4"/></xsl:when>
+      <xsl:when test="$decDegDecPlaces = 5"><xsl:value-of select="$DecPl5"/></xsl:when>
+      <xsl:when test="$decDegDecPlaces = 6"><xsl:value-of select="$DecPl6"/></xsl:when>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:choose>
+    <!-- Null angle value -->
+    <xsl:when test="string(number($theAngle))='NaN'">
+      <xsl:value-of select="format-number($theAngle, $DecPl3, 'Standard')"/> <!-- Use the defined null format output -->
+    </xsl:when>
+    <!-- There is an angle value -->
+    <xsl:otherwise>
+      <xsl:choose>
+        <xsl:when test="($AngleUnit = 'DMSDegrees') or not($DMSOutput = 'false')">
+          <xsl:choose>
+            <xsl:when test="$outputAsMilligonsOrSecs != 'false'">
+              <xsl:value-of select="format-number($theAngle * $AngleConvFactor * 3600.0, '00.0', 'Standard')"/>
+            </xsl:when>            
+            <xsl:when test="$outputAsMilligonsOrSecsSqrd != 'false'">
+              <xsl:value-of select="format-number($theAngle * $AngleConvFactor * 3600.0 * 3600.0, '00.000', 'Standard')"/>
+            </xsl:when>            
+            <xsl:otherwise>
+              <xsl:call-template name="FormatDMSAngle">
+                <xsl:with-param name="decimalAngle" select="$theAngle"/>
+                <xsl:with-param name="secDecPlaces" select="$secDecPlaces"/>
+                <xsl:with-param name="useSymbols" select="$useSymbols"/>
+                <xsl:with-param name="impliedDecimalPt" select="$impliedDecimalPt"/>
+                <xsl:with-param name="dmsSymbols" select="$dmsSymbols"/>
+              </xsl:call-template>
+            </xsl:otherwise>
+          </xsl:choose>  
+        </xsl:when>
+
+        <xsl:otherwise>
+          <xsl:variable name="fmtAngle">
+            <xsl:choose>
+              <xsl:when test="($AngleUnit = 'Gons') and ($DMSOutput = 'false')">
+                <xsl:choose>
+                  <xsl:when test="$outputAsMilligonsOrSecs != 'false'">
+                    <xsl:value-of select="format-number($theAngle * $AngleConvFactor * 1000.0, $DecPl2, 'Standard')"/>
+                  </xsl:when>
+                  <xsl:when test="$outputAsMilligonsOrSecsSqrd != 'false'">
+                    <xsl:value-of select="format-number($theAngle * $AngleConvFactor * 1000.0 * 1000.0, $DecPl4, 'Standard')"/>
+                  </xsl:when>
+                  <xsl:otherwise>
+                    <xsl:choose>
+                      <xsl:when test="$secDecPlaces &gt; 0">  <!-- More accurate angle output required -->
+                        <xsl:value-of select="format-number($theAngle * $AngleConvFactor, $DecPl8, 'Standard')"/>
+                      </xsl:when>
+                      <xsl:otherwise>
+                        <xsl:value-of select="format-number($theAngle * $AngleConvFactor, $gonsDecPl, 'Standard')"/>
+                      </xsl:otherwise>
+                    </xsl:choose>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:when>
+
+              <xsl:when test="($AngleUnit = 'Mils') and ($DMSOutput = 'false')">
+                <xsl:choose>
+                  <xsl:when test="$secDecPlaces &gt; 0">  <!-- More accurate angle output required -->
+                    <xsl:value-of select="format-number($theAngle * $AngleConvFactor, $DecPl6, 'Standard')"/>
+                  </xsl:when>
+                  <xsl:otherwise>
+                    <xsl:value-of select="format-number($theAngle * $AngleConvFactor, $DecPl4, 'Standard')"/>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:when>
+
+              <xsl:when test="($AngleUnit = 'DecimalDegrees') and ($DMSOutput = 'false')">
+                <xsl:choose>
+                  <xsl:when test="$secDecPlaces &gt; 0">  <!-- More accurate angle output required -->
+                    <xsl:value-of select="format-number($theAngle * $AngleConvFactor, $DecPl8, 'Standard')"/>
+                  </xsl:when>
+                  <xsl:otherwise>
+                    <xsl:value-of select="format-number($theAngle * $AngleConvFactor, $decDegDecPl, 'Standard')"/>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:when>
+            </xsl:choose>
+          </xsl:variable>
+          
+          <xsl:choose>
+            <xsl:when test="$impliedDecimalPt != 'true'">
+              <xsl:value-of select="$fmtAngle"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="translate($fmtAngle, '.', '')"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************ Output Azimuth in Appropriate Format ************** -->
+<!-- **************************************************************** -->
+<xsl:template name="FormatAzimuth">
+  <xsl:param name="theAzimuth"/>
+  <xsl:param name="secDecPlaces" select="0"/>
+  <xsl:param name="DMSOutput" select="'false'"/>  <!-- Can be used to force DMS output -->
+  <xsl:param name="useSymbols" select="'true'"/>
+  <xsl:param name="quadrantBearings" select="'false'"/>  <!-- Can be used to force quadrant bearing output -->
+  <xsl:param name="impliedDecimalPt" select="'false'"/>
+  <xsl:param name="northLbl" select="'N'"/>
+  <xsl:param name="eastLbl" select="'E'"/>
+  <xsl:param name="southLbl" select="'S'"/>
+  <xsl:param name="westLbl" select="'W'"/>
+  <xsl:param name="dmsSymbols">&#0176;'"</xsl:param>
+
+  <xsl:choose>
+    <xsl:when test="(/JOBFile/Environment/DisplaySettings/AzimuthFormat = 'QuadrantBearings') or ($quadrantBearings != 'false')">
+      <xsl:call-template name="FormatQuadrantBearing">
+        <xsl:with-param name="decimalAngle" select="$theAzimuth"/>
+        <xsl:with-param name="secDecPlaces" select="$secDecPlaces"/>
+        <xsl:with-param name="impliedDecimalPt" select="$impliedDecimalPt"/>
+        <xsl:with-param name="northLbl" select="$northLbl"/>
+        <xsl:with-param name="eastLbl" select="$eastLbl"/>
+        <xsl:with-param name="southLbl" select="$southLbl"/>
+        <xsl:with-param name="westLbl" select="$westLbl"/>
+        <xsl:with-param name="dmsSymbols" select="$dmsSymbols"/>
+      </xsl:call-template>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:call-template name="FormatAngle">
+        <xsl:with-param name="theAngle" select="$theAzimuth"/>
+        <xsl:with-param name="secDecPlaces" select="$secDecPlaces"/>
+        <xsl:with-param name="DMSOutput" select="$DMSOutput"/>
+        <xsl:with-param name="useSymbols" select="$useSymbols"/>
+        <xsl:with-param name="impliedDecimalPt" select="$impliedDecimalPt"/>
+        <xsl:with-param name="dmsSymbols" select="$dmsSymbols"/>
+      </xsl:call-template>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Format latitude or Longitude in DMS Format *********** -->
+<!-- **************************************************************** -->
+<xsl:template name="FormatLatLong">
+  <xsl:param name="theAngle"/>
+  <xsl:param name="isLat" select="'true'"/>
+  <xsl:param name="secDecPlaces" select="5"/>
+  <xsl:param name="impliedDecimalPt" select="'false'"/>
+  <xsl:param name="northLbl" select="'N'"/>
+  <xsl:param name="eastLbl" select="'E'"/>
+  <xsl:param name="southLbl" select="'S'"/>
+  <xsl:param name="westLbl" select="'W'"/>
+  <xsl:param name="leadingLabel" select="'false'"/>
+  <xsl:param name="dmsSymbols">&#0176;'"</xsl:param>
+  <xsl:param name="decimalDegrees" select="'false'"/>
+
+  <xsl:choose>
+    <!-- Null angle value -->
+    <xsl:when test="string(number($theAngle)) = 'NaN'">
+      <xsl:value-of select="format-number($theAngle, $DecPl3, 'Standard')"/> <!-- Use the defined null format output -->
+    </xsl:when>
+    <!-- There is a lat or long value -->
+    <xsl:otherwise>
+      <xsl:variable name="sign">
+        <xsl:choose>
+          <xsl:when test="$theAngle &lt; '0.0'">
+            <xsl:choose>  <!-- Negative value -->
+              <xsl:when test="$isLat = 'true'"><xsl:value-of select="$southLbl"/></xsl:when>
+              <xsl:otherwise><xsl:value-of select="$westLbl"/></xsl:otherwise>
+            </xsl:choose>
+          </xsl:when>
+          <xsl:otherwise> <!-- Positive value -->
+            <xsl:choose>
+              <xsl:when test="$isLat = 'true'"><xsl:value-of select="$northLbl"/></xsl:when>
+              <xsl:otherwise><xsl:value-of select="$eastLbl"/></xsl:otherwise>
+            </xsl:choose>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+
+      <!-- Convert to a positive angle before changing to DMS format -->
+      <xsl:variable name="posAngle" select="concat(substring('-',2 - ($theAngle &lt; 0)), '1') * $theAngle"/>
+
+      <xsl:variable name="latLongAngle">
+        <xsl:choose>
+          <xsl:when test="$decimalDegrees = 'false'">
+            <xsl:call-template name="FormatDMSAngle">
+              <xsl:with-param name="decimalAngle" select="$posAngle"/>
+              <xsl:with-param name="secDecPlaces" select="$secDecPlaces"/>
+              <xsl:with-param name="impliedDecimalPt" select="$impliedDecimalPt"/>
+              <xsl:with-param name="dmsSymbols" select="$dmsSymbols"/>
+            </xsl:call-template>
+          </xsl:when>
+          <xsl:otherwise>  <!-- Output as decimal degrees to 8 decimal places -->
+            <xsl:value-of select="format-number($posAngle, $DecPl8, 'Standard')"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+
+      <xsl:choose>
+        <xsl:when test="$leadingLabel = 'false'">
+          <xsl:value-of select="concat($latLongAngle, $sign)"/>
+        </xsl:when>
+        <xsl:otherwise>  <!-- Trailing label -->
+          <xsl:value-of select="concat($sign, $latLongAngle)"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- **************** Return Formatted Grade Value ****************** -->
+<!-- **************************************************************** -->
+<xsl:template name="FormatGrade">
+  <xsl:param name="percentageGrade"/>
+  <xsl:param name="gradeUnits" select="'Percentage'"/>
+  <xsl:param name="decPlaces" select="$DecPl2"/>
+
+  <xsl:variable name="absValue" select="concat(substring('-',2 - ($percentageGrade &lt; 0)), '1') * $percentageGrade"/>
+
+  <xsl:choose>
+    <xsl:when test="$gradeUnits = 'RatioRiseRun'">
+      <xsl:if test="$percentageGrade &lt; '0.0'">-1:</xsl:if>
+      <xsl:if test="$percentageGrade &gt;= '0.0'">1:</xsl:if>
+      <xsl:value-of select="format-number(number(100 div $absValue), $decPlaces, 'Standard')"/>
+    </xsl:when>
+
+    <xsl:when test="$gradeUnits = 'RatioRunRise'">
+      <xsl:value-of select="format-number(number(100 div $absValue), $decPlaces, 'Standard')"/>
+      <xsl:if test="$percentageGrade &lt; '0.0'">:-1</xsl:if>
+      <xsl:if test="$percentageGrade &gt;= '0.0'">:1</xsl:if>
+    </xsl:when>
+
+    <xsl:otherwise>  <!-- Output as percentage grade if set to Percentage or Angle -->
+      <xsl:value-of select="format-number($percentageGrade, $decPlaces, 'Standard')"/>
+      <xsl:text>%</xsl:text>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********************** Strip Trailing Zeros ******************** -->
+<!-- **************************************************************** -->
+<xsl:template name="StripTrailingZeros">
+  <xsl:param name="inValue"/>
+
+  <xsl:variable name="workValue">
+    <xsl:choose>
+      <xsl:when test="not(contains($inValue, '.'))">    <!-- No decimal point so add one -->
+        <xsl:value-of select="concat($inValue, '.')"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$inValue"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:choose>
+    <xsl:when test="substring($workValue, string-length($workValue), 1) = '0'">
+      <xsl:call-template name="StripTrailingZeros">
+        <xsl:with-param name="inValue" select="substring($workValue, 1, string-length($workValue) - 1)"/>
+      </xsl:call-template>
+    </xsl:when>
+    <xsl:when test="substring($workValue, string-length($workValue), 1) = '.'">
+      <xsl:value-of select="concat($workValue, '0')"/>  <!-- Add a single trailing zero -->
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="$workValue"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *********** Pad a string to the right with spaces ************** -->
+<!-- **************************************************************** -->
+<xsl:template name="PadRight">
+  <xsl:param name="stringWidth"/>
+  <xsl:param name="theString"/>
+  <xsl:choose>
+    <xsl:when test="$stringWidth = '0'">
+      <xsl:value-of select="normalize-space($theString)"/> <!-- Function return value -->
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:variable name="paddedStr" select="concat($theString, '                                                                                          ')"/>
+      <xsl:value-of select="substring($paddedStr, 1, $stringWidth)"/> <!-- Function return value -->
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *********** Pad a string to the left with spaces *************** -->
+<!-- **************************************************************** -->
+<xsl:template name="PadLeft">
+  <xsl:param name="stringWidth"/>
+  <xsl:param name="theString"/>
+  <xsl:choose>
+    <xsl:when test="$stringWidth = '0'">
+      <xsl:value-of select="normalize-space($theString)"/>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:variable name="paddedStr" select="concat('                                                            ', $theString)"/>
+      <xsl:value-of select="substring($paddedStr, string-length($paddedStr) - $stringWidth + 1)"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********************** New Line Output ************************* -->
+<!-- **************************************************************** -->
+<xsl:template name="NewLine">
+  <xsl:text>&#10;</xsl:text>
+</xsl:template>
+
+
+</xsl:stylesheet>

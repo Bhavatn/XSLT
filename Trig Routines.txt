@@ -1,0 +1,537 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+
+<!-- Functions available in this style sheet: -->
+<!--   AngleInRadians (degrees to radians conversion with normalise option) -->
+<!--   AngleValueLessThanMax (called from RadianAngleBetweenLimits) -->
+<!--   AngleValueGreaterThanMin (called from RadianAngleBetweenLimits) -->
+<!--   RadianAngleBetweenLimits (normalisation function) -->
+<!--   Sine (theAngle parameter expected to be in radians) -->
+<!--   Cosine (theAngle parameter expected to be in radians) -->
+<!--   Tan (theAngle parameter expected to be in radians) -->
+<!--   ArcTan (returns angle in radians) -->
+<!--   ArcTanSeries (returns angle in radians using a series expansion - faster function) -->
+<!--   ArcCos (returns angle in radians using a series expansion) -->
+<!--   ArcSin (returns angle in radians using a series expansion) -->
+<!--   Log10 (returns logarithm base 10 value) -->
+<!--   Log (returns log of a value) -->
+
+
+<xsl:variable name="Pi" select="3.14159265358979323846264"/>
+<xsl:variable name="halfPi" select="$Pi div 2.0"/>
+
+<!-- **************************************************************** -->
+<!-- ********************** Angle in Radians ************************ -->
+<!-- **************************************************************** -->
+<xsl:template name="AngleInRadians">
+  <xsl:param name="theAngle"/>
+  <xsl:param name="normalise" select="'false'"/>
+  <xsl:choose>
+    <!-- Null angle value -->
+    <xsl:when test="string(number($theAngle)) = 'NaN'">
+      <xsl:value-of select="''"/>
+    </xsl:when>
+    <!-- There is an angle value -->
+    <xsl:otherwise>
+      <xsl:variable name="radiansAngle">
+        <xsl:value-of select="$theAngle * $Pi div 180.0"/>
+      </xsl:variable>
+
+      <xsl:variable name="outAngle">
+        <xsl:choose>
+          <xsl:when test="$normalise = 'false'">
+            <xsl:value-of select="$radiansAngle"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:call-template name="RadianAngleBetweenLimits">
+              <xsl:with-param name="anAngle" select="$radiansAngle"/>
+            </xsl:call-template>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+      <xsl:value-of select="$outAngle"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******* Return radians angle less than Specificed Maximum ****** -->
+<!-- **************************************************************** -->
+<xsl:template name="AngleValueLessThanMax">
+  <xsl:param name="inAngle"/>
+  <xsl:param name="maxVal"/>
+  <xsl:param name="incVal"/>
+
+  <xsl:choose>
+    <xsl:when test="$inAngle &gt; $maxVal">
+      <xsl:variable name="newAngle">
+        <xsl:value-of select="$inAngle - $incVal"/>
+      </xsl:variable>
+      <xsl:call-template name="AngleValueLessThanMax">
+        <xsl:with-param name="inAngle" select="$newAngle"/>
+      </xsl:call-template>
+    </xsl:when>
+
+    <xsl:otherwise>
+      <xsl:value-of select="$inAngle"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************* Return radians angle greater than Zero *********** -->
+<!-- **************************************************************** -->
+<xsl:template name="AngleValueGreaterThanMin">
+  <xsl:param name="inAngle"/>
+  <xsl:param name="minVal"/>
+  <xsl:param name="incVal"/>
+
+  <xsl:choose>
+    <xsl:when test="$inAngle &lt; $minVal">
+      <xsl:variable name="newAngle">
+        <xsl:value-of select="$inAngle + $incVal"/>
+      </xsl:variable>
+      <xsl:call-template name="AngleValueGreaterThanMin">
+        <xsl:with-param name="inAngle" select="$newAngle"/>
+      </xsl:call-template>
+    </xsl:when>
+
+    <xsl:otherwise>
+      <xsl:value-of select="$inAngle"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Return radians angle between Specified Limits ******** -->
+<!-- **************************************************************** -->
+<xsl:template name="RadianAngleBetweenLimits">
+  <xsl:param name="anAngle"/>
+  <xsl:param name="minVal" select="0.0"/>
+  <xsl:param name="maxVal" select="$Pi * 2.0"/>
+  <xsl:param name="incVal" select="$Pi * 2.0"/>
+
+  <xsl:variable name="angle1">
+    <xsl:call-template name="AngleValueLessThanMax">
+      <xsl:with-param name="inAngle" select="$anAngle"/>
+      <xsl:with-param name="maxVal" select="$maxVal"/>
+      <xsl:with-param name="incVal" select="$incVal"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="angle2">
+    <xsl:call-template name="AngleValueGreaterThanMin">
+      <xsl:with-param name="inAngle" select="$angle1"/>
+      <xsl:with-param name="minVal" select="$minVal"/>
+      <xsl:with-param name="incVal" select="$incVal"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:value-of select="$angle2"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************ Return the sine of an angle in radians ************ -->
+<!-- **************************************************************** -->
+<xsl:template name="Sine">
+  <xsl:param name="theAngle"/>
+  <xsl:variable name="normalisedAngle">
+    <xsl:call-template name="RadianAngleBetweenLimits">
+      <xsl:with-param name="anAngle" select="$theAngle"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="theSine">
+    <xsl:call-template name="sineIter">
+      <xsl:with-param name="pX2" select="$normalisedAngle * $normalisedAngle"/>
+      <xsl:with-param name="pRslt" select="$normalisedAngle"/>
+      <xsl:with-param name="pElem" select="$normalisedAngle"/>
+      <xsl:with-param name="pN" select="1"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:value-of select="number($theSine)"/>
+</xsl:template>
+
+<xsl:template name="sineIter">
+  <xsl:param name="pX2"/>
+  <xsl:param name="pRslt"/>
+  <xsl:param name="pElem"/>
+  <xsl:param name="pN"/>
+  <xsl:param name="pEps" select="0.00000001"/>
+  <xsl:variable name="vnextN" select="$pN+2"/>
+  <xsl:variable name="vnewElem"  select="-$pElem*$pX2 div ($vnextN*($vnextN - 1))"/>
+  <xsl:variable name="vnewResult" select="$pRslt + $vnewElem"/>
+  <xsl:variable name="vdiffResult" select="$vnewResult - $pRslt"/>
+  <xsl:choose>
+    <xsl:when test="$vdiffResult > $pEps or $vdiffResult &lt; -$pEps">
+      <xsl:call-template name="sineIter">
+        <xsl:with-param name="pX2" select="$pX2"/>
+        <xsl:with-param name="pRslt" select="$vnewResult"/>
+        <xsl:with-param name="pElem" select="$vnewElem"/>
+        <xsl:with-param name="pN" select="$vnextN"/>
+        <xsl:with-param name="pEps" select="$pEps"/>
+      </xsl:call-template>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="$vnewResult"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *********** Return the Cosine of an angle in radians *********** -->
+<!-- **************************************************************** -->
+<xsl:template name="Cosine">
+  <xsl:param name="theAngle"/>
+
+  <!-- Use the sine function after subtracting the angle from halfPi -->
+  <xsl:call-template name="Sine">
+    <xsl:with-param name="theAngle" select="$halfPi - $theAngle"/>
+  </xsl:call-template>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *********** Return the Tangent of an angle in radians ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="Tan">
+  <xsl:param name="theAngle"/>
+  <xsl:param name="prec" select="0.00000001"/>
+  <xsl:param name="abortIfInvalid" select="1"/>
+
+  <xsl:variable name="xDivHalfPi" select="floor($theAngle div $halfPi)"/>
+  <xsl:variable name="xHalfPiDiff" select="$theAngle - $halfPi * $xDivHalfPi"/>
+
+  <xsl:choose>  <!-- Check for a solution -->
+    <xsl:when test="(-$prec &lt; $xHalfPiDiff) and
+                    ($xHalfPiDiff &lt; $prec) and
+                    ($xDivHalfPi mod 2 = 1)">
+      <xsl:choose>
+        <xsl:when test="$abortIfInvalid">
+          <xsl:message terminate="yes">
+            <xsl:value-of select="concat('Function error: tan() not defined for TheAngle =', $theAngle)"/>
+          </xsl:message>
+        </xsl:when>
+
+        <xsl:otherwise>Infinity</xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+
+    <!-- Compute the sine and cosine of the angle to get the tangent value -->
+    <xsl:otherwise>
+      <xsl:variable name="vSin">
+        <xsl:call-template name="Sine">
+          <xsl:with-param name="theAngle" select="$theAngle"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="vCos">
+        <xsl:call-template name="Cosine">
+          <xsl:with-param name="theAngle" select="$theAngle"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:value-of select="$vSin div $vCos"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ** Compute the arcTangent of value - angle returned in radians * -->
+<!-- **************************************************************** -->
+<xsl:template name="ArcTan">
+  <xsl:param name="tanVal"/>
+  <xsl:param name="prec" select="0.00000001"/>
+
+  <!-- Solve the arctan value by using Newton's Method of solving the solution -->
+  <!-- to an equation:                                                         -->
+  <!--                               f(x )                                     -->
+  <!--                                  n                                      -->
+  <!--                 x     = x  -  ______                                    -->
+  <!--                  n+1     n    f'(x )                                    -->
+  <!--                                   n                                     -->
+  <!--                                                                         -->
+  <!-- The derivative of the tan function is:                                  -->
+  <!--                                1                                        -->
+  <!--                              ______                                     -->
+  <!--                                    2                                    -->
+  <!--                              cos(x)                                     -->
+  <!--                                                                         -->
+  <!-- This provides the following equation to be implemented for an arctan    -->
+  <!-- function:                                                               -->
+  <!--                                                          2              -->
+  <!--                 x     = x  - (tan(x ) - tanVal) * cos(x )               -->
+  <!--                  n+1     n         n                   n                -->
+  <!--                                                                         -->
+
+
+  <xsl:variable name="firstEstimate">
+    <xsl:choose>
+      <xsl:when test="$tanVal &gt; 0">
+        <xsl:value-of select="1.57"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="-1.57"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="arcTanVal">
+    <xsl:call-template name="RadianAngleBetweenLimits">  <!-- Return a normalised value between minus two Pi and two Pi -->
+      <xsl:with-param name="minVal" select="-1 * $Pi * 2.0"/>
+      <xsl:with-param name="anAngle">
+        <xsl:call-template name="arcTanIter">
+          <xsl:with-param name="tanVal" select="$tanVal"/>
+          <xsl:with-param name="prec" select="$prec"/>
+          <xsl:with-param name="x" select="$firstEstimate"/>
+        </xsl:call-template>
+      </xsl:with-param>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:value-of select="$arcTanVal"/>
+</xsl:template>
+
+<xsl:template name="arcTanIter">
+  <xsl:param name="tanVal"/>
+  <xsl:param name="x" select="1"/>
+  <xsl:param name="iterCount" select="1"/>
+  <xsl:param name="prec" select="0.00000001"/>
+  <xsl:variable name="maxIter" select="100"/>
+
+  <xsl:variable name="tanX">
+    <xsl:call-template name="Tan">
+      <xsl:with-param name="theAngle" select="$x"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="cosX">
+    <xsl:call-template name="Cosine">
+      <xsl:with-param name="theAngle" select="$x"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="xNew" select="$x - ($tanX - $tanVal) * $cosX * $cosX"/>
+
+  <xsl:variable name="absDiff" select="concat(substring('-',2 - (($xNew - $x) &lt; 0)), '1') * ($xNew - $x)"/>
+
+  <xsl:choose>
+    <xsl:when test="($absDiff &lt; $prec) or ($iterCount &gt; $maxIter)">
+      <xsl:value-of select="$xNew"/>  <!-- We have a solution or have run out of iterations -->
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:call-template name="arcTanIter">
+        <xsl:with-param name="tanVal" select="$tanVal"/>
+        <xsl:with-param name="x" select="$xNew"/>
+        <xsl:with-param name="iterCount" select="$iterCount + 1"/>
+      </xsl:call-template>
+    </xsl:otherwise>
+  </xsl:choose>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******* Return the arcTan value using a series expansion ******* -->
+<!-- **************************************************************** -->
+<xsl:template name="ArcTanSeries">
+  <xsl:param name="tanVal"/>
+
+  <!-- If the absolute value of tanVal is greater than 1 the work with the -->
+  <!-- reciprocal value and return the resultant angle subtracted from Pi. -->
+  <xsl:variable name="absTanVal" select="concat(substring('-',2 - ($tanVal &lt; 0)), '1') * $tanVal"/>
+  <xsl:variable name="tanVal2">
+    <xsl:choose>
+      <xsl:when test="$absTanVal &gt; 1.0">
+        <xsl:value-of select="1.0 div $tanVal"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$tanVal"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="valSq" select="$tanVal2 * $tanVal2"/>
+
+  <xsl:variable name="angVal">
+    <xsl:value-of select="$tanVal2 div (1 + ($valSq
+                                   div (3 + (4 * $valSq
+                                   div (5 + (9 * $valSq
+                                   div (7 + (16 * $valSq
+                                   div (9 + (25 * $valSq
+                                   div (11 + (36 * $valSq
+                                   div (13 + (49 * $valSq
+                                   div (15 + (64 * $valSq
+                                   div (17 + (81 * $valSq
+                                   div (19 + (100 * $valSq
+                                   div (21 + (121 * $valSq
+                                   div (23 + (144 * $valSq
+                                   div (25 + (169 * $valSq
+                                   div (27 + (196 * $valSq
+                                   div (29 + (225 * $valSq))))))))))))))))))))))))))))))"/>
+  </xsl:variable>
+
+  <xsl:choose>
+    <xsl:when test="$absTanVal &gt; 1.0">
+      <xsl:choose>
+        <xsl:when test="$tanVal &lt; 0">
+          <xsl:value-of select="-$halfPi - $angVal"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$halfPi - $angVal"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="$angVal"/>
+    </xsl:otherwise>
+  </xsl:choose>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Compute ArcCosine value using an expansion ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="ArcCos">
+  <xsl:param name="cosVal"/>
+
+  <xsl:choose>
+    <xsl:when test="($cosVal &gt;= -1.0) and ($cosVal &lt;= 1.0)">  <!-- We can compute a solution -->
+      <!-- Use the ArcSin expansion to return the ArcCos value -->
+      <xsl:variable name="arcSineVal">
+        <xsl:call-template name="ArcSin">
+          <xsl:with-param name="sinVal" select="$cosVal"/>       
+        </xsl:call-template>
+      </xsl:variable>
+      <xsl:value-of select="$halfPi - $arcSineVal"/>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="''"/>  <!-- Return null value -->
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *********** Compute ArcSine value using an expansion *********** -->
+<!-- **************************************************************** -->
+<xsl:template name="ArcSin">
+  <xsl:param name="sinVal"/>
+  
+  <xsl:choose>
+    <xsl:when test="($sinVal &gt;= -1.0) and ($sinVal &lt;= 1.0)">  <!-- We can compute a solution -->
+      <xsl:variable name="valToPowerOf3" select="$sinVal * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf5" select="$valToPowerOf3 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf7" select="$valToPowerOf5 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf9" select="$valToPowerOf7 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf11" select="$valToPowerOf9 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf13" select="$valToPowerOf11 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf15" select="$valToPowerOf13 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf17" select="$valToPowerOf15 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf19" select="$valToPowerOf17 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf21" select="$valToPowerOf19 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf23" select="$valToPowerOf21 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf25" select="$valToPowerOf23 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf27" select="$valToPowerOf25 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf29" select="$valToPowerOf27 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf31" select="$valToPowerOf29 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf33" select="$valToPowerOf31 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf35" select="$valToPowerOf33 * $sinVal * $sinVal"/>
+      <xsl:variable name="valToPowerOf37" select="$valToPowerOf35 * $sinVal * $sinVal"/>
+
+      <xsl:value-of select="$sinVal + $valToPowerOf3 div 6.0
+                                    + 3.0          * $valToPowerOf5  div 40.0
+                                    + 5.0          * $valToPowerOf7  div 112.0
+                                    + 35.0         * $valToPowerOf9  div 1152.0
+                                    + 63.0         * $valToPowerOf11 div 2816
+                                    + 231.0        * $valToPowerOf13 div 13312
+                                    + 143.0        * $valToPowerOf15 div 10240
+                                    + 6435.0       * $valToPowerOf17 div 557056.0
+                                    + 12155.0      * $valToPowerOf19 div 1245184.0
+                                    + 46189.0      * $valToPowerOf21 div 5505024.0
+                                    + 88179.0      * $valToPowerOf23 div 12058624.0
+                                    + 676039.0     * $valToPowerOf25 div 104857600.0
+                                    + 1300075.0    * $valToPowerOf27 div 226492416.0
+                                    + 5014575.0    * $valToPowerOf29 div 973078528.0
+                                    + 9694845.0    * $valToPowerOf31 div 2080374784.0
+                                    + 100180065.0  * $valToPowerOf33 div 23622320128.0
+                                    + 116680311.0  * $valToPowerOf35 div 30064771072.0
+                                    + 2268783825.0 * $valToPowerOf37 div 635655159808.0"/>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="''"/>  <!-- Return null value -->
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+<!-- **************************************************************** -->
+	<!-- ****** Calculate the logarithm for a value and base 10 ********* -->
+	<!-- **************************************************************** -->
+<xsl:variable name="ln10" select="2.3025850929940456840179914546844"/>
+<xsl:template name="log10">
+	<xsl:param name="x"/>
+	<xsl:variable name="logval">
+		<xsl:call-template name="log">
+			<xsl:with-param name="x" select="$x"/>
+		</xsl:call-template>
+	</xsl:variable>
+	<xsl:value-of select="$logval div $ln10"/>
+</xsl:template>
+
+<xsl:template name="log">
+	<xsl:param name="x"/>
+	<xsl:variable name="old_sum" select="0.0"/>
+	<xsl:variable name="xmlxpl" select="($x - 1) div ($x + 1)"/>
+	<xsl:variable name="xmlxpl2" select="$xmlxpl * $xmlxpl"/>
+	<xsl:variable name="denom" select="1.0"/>
+	<xsl:variable name="frac" select="$xmlxpl"/>
+	<xsl:variable name="term" select="$frac"/>
+	<xsl:variable name="sum" select="$term"/>
+
+	<xsl:call-template name="logln">
+		<xsl:with-param name="denom" select="$denom"/>
+		<xsl:with-param name="frac" select="$frac"/>
+		<xsl:with-param name="old_sum" select="$old_sum"/>
+		<xsl:with-param name="xmlxpl2" select="$xmlxpl2"/>
+		<xsl:with-param name="sum" select="$sum"/>
+	</xsl:call-template>
+</xsl:template>
+
+<xsl:template name="logln">
+	<xsl:param name="old_sum"/>
+	<xsl:param name="denom"/>
+	<xsl:param name="frac"/>
+	<xsl:param name="xmlxpl2"/>
+	<xsl:param name="sum"/>
+
+	<xsl:choose>
+		<xsl:when test="$sum != $old_sum">
+			<xsl:variable name="old_sum1" select="$sum"/>
+			<xsl:variable name="denom1" select="$denom + 2.0"/>
+			<xsl:variable name="frac1" select="$frac * $xmlxpl2"/>
+			<xsl:variable name="sum1" select="number($sum + number($frac1 div $denom1))"/>
+			<xsl:call-template name="logln">
+				<xsl:with-param name="denom" select="$denom1"/>
+				<xsl:with-param name="frac" select="$frac1"/>
+				<xsl:with-param name="old_sum" select="$old_sum1"/>
+				<xsl:with-param name="sum" select="$sum1"/>
+				<xsl:with-param name="xmlxpl2" select="$xmlxpl2"/>
+			</xsl:call-template>
+		</xsl:when>
+		<xsl:otherwise>
+			<xsl:value-of select="2.0 * $sum"/>
+		</xsl:otherwise>
+	</xsl:choose>
+</xsl:template>
+
+
+</xsl:stylesheet>

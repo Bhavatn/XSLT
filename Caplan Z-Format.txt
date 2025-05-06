@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:msxsl="urn:schemas-microsoft-com:xslt">
+	<!-- **************************************************************** -->
+	<!-- Karlsruhe                                                                                                                 -->
+	<!--                                                                                                                                  -->
+	<!-- Version     : 1.00                                                                                                      -->
+	<!-- Date         : November  2006                                                                                  -->
+	<!-- Author      : C. Breuer                                                                                              -->
+	<!--                                                                                                                                   -->
+	<!-- **************************************************************** -->
+	<xsl:output method="text" omit-xml-declaration="yes" encoding="ISO-8859-1"/>
+	<xsl:decimal-format name="Standard" 
+                    decimal-separator="."
+                    grouping-separator=","
+                    infinity="Infinity"
+                    minus-sign="-"
+                    NaN="NaN"
+                    percent="%"
+                    per-mille="&#2030;"
+                    zero-digit="0" 
+                    digit="#" 
+                    pattern-separator=";" />
+	<xsl:variable name="DefaultText" select="''"/>
+	<xsl:variable name="fileExt" select="'z'"/>
+	<!-- **************************************************************** -->
+	<!-- ************ Define search keys to speed up searchs ************ -->
+	<!-- **************************************************************** -->
+	<xsl:key name="StationID-search" match="//JOBFile/FieldBook/StationRecord" use="@ID"/>
+	<xsl:key name="TargetID-search" match="//JOBFile/FieldBook/TargetRecord" use="@ID"/>
+	<xsl:key name="AtmosphereID-search" match="//JOBFile/FieldBook/AtmosphereRecord" use="@ID"/>
+	<!-- **************************************************************** -->
+	<!-- Units in JOB-File                                                -->
+	<!--                                                                  -->
+	<!-- Coordinates  : Meter                                             -->
+	<!-- Distances    : Meter                                             -->
+	<!-- Angles       : Gons        >>>   Conversion Factor               -->
+	<!-- Temperature  : Celsius                                           -->
+	<!-- Pressure     : hPas                                              -->
+	<!-- **************************************************************** -->
+	<xsl:variable name="AngleConvFactor" select="1.111111111111"/>
+	<!-- **************************************************************** -->
+	<!-- ************************** Main Loop *************************** -->
+	<!-- **************************************************************** -->
+	<xsl:template match="/">
+		<!-- <xsl:value-of select="'nnnn CC IPHHHHH NNNNNNNNNNNNNNNN  1.Messwert  2.Messwert  3.Messwert  |Code|Line|'"/>
+		<xsl:call-template name="NewLine"/> -->
+		<xsl:apply-templates select="JOBFile/FieldBook"/>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- ***************** FieldBook Node Processing ******************** -->
+	<!-- **************************************************************** -->
+	<xsl:template match="FieldBook">
+		<xsl:variable name="outputData">
+			<!-- Add all the output data to the variable $outputData so that it can be further processed later -->
+			<xsl:apply-templates select="PointRecord[Deleted = 'false'][Circle]"/>
+			<!-- Only interested in PointRecords with Circle elements -->
+		</xsl:variable>
+		<!-- Now process the $outputData variable to create the output file -->
+		<xsl:for-each select="msxsl:node-set($outputData)/Point">
+			<!-- Observation Output -->
+			<!-- ****************** -->
+			<xsl:call-template name="PadLeft">
+				<xsl:with-param name="Text" select="format-number(position(), '#0')"/>
+				<!-- Output line count -->
+				<xsl:with-param name="Width" select="4"/>
+			</xsl:call-template>
+			<xsl:choose>
+				<xsl:when test="type = 'Station'">
+					<!-- Output station details -->
+					<xsl:value-of select="' 10'"/>
+					<xsl:value-of select="' '"/>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="format-number(InstrumentH * 1000,'#0000000')"/>
+						<xsl:with-param name="Width" select="7"/>
+					</xsl:call-template>
+					<xsl:value-of select="' '"/>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="Station"/>
+						<xsl:with-param name="Width" select="16"/>
+					</xsl:call-template>
+					<xsl:call-template name="NewLine"/>
+				</xsl:when>
+				<xsl:when test="type = 'Time'">
+					<xsl:value-of select="' 05'"/>
+					<xsl:value-of select="' '"/>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="Time"/>
+						<xsl:with-param name="Width" select="7"/>
+					</xsl:call-template>
+					<xsl:value-of select="' '"/>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="concat(Day, '-', Month, '-', Year)"/>
+						<xsl:with-param name="Width" select="16"/>
+					</xsl:call-template>
+					<xsl:call-template name="NewLine"/>
+				</xsl:when>
+				<xsl:when test="type = 'Weather'">
+					<xsl:value-of select="' 06'"/>
+					<xsl:value-of select="'                 '"/>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="format-number(Temperature, '#0')"/>
+						<xsl:with-param name="Width" select="4"/>
+					</xsl:call-template>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="format-number(Pressure, '#0')"/>
+						<xsl:with-param name="Width" select="4"/>
+					</xsl:call-template>
+					<xsl:call-template name="NewLine"/>
+				</xsl:when>
+				<xsl:otherwise>
+					<!-- Output observation details -->
+					<xsl:choose>
+						<xsl:when test="Hz = '' and V = ''">
+							<xsl:value-of select="' 30'"/>
+						</xsl:when>
+						<xsl:when test="Hz = '' and Dist = ''">
+							<xsl:value-of select="' 40'"/>
+						</xsl:when>
+						<xsl:when test="Dist = '' and V = ''">
+							<xsl:value-of select="' 80'"/>
+						</xsl:when>
+						<xsl:otherwise>
+							<xsl:value-of select="' 20'"/>
+						</xsl:otherwise>
+					</xsl:choose>
+					<xsl:value-of select="' '"/>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text">
+							<xsl:choose>
+								<xsl:when test="Dist = '' and V = ''">
+									<xsl:value-of select="'0000000'"/>
+								</xsl:when>
+								<xsl:otherwise>
+									<xsl:value-of select="format-number(TargetH * 1000,'#0000000')"/>
+								</xsl:otherwise>
+							</xsl:choose>
+						</xsl:with-param>
+						<xsl:with-param name="Width" select="7"/>
+					</xsl:call-template>
+					<xsl:value-of select="' '"/>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="ObsPoint"/>
+						<xsl:with-param name="Width" select="16"/>
+					</xsl:call-template>
+					<xsl:value-of select="'  '"/>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="format-number(Dist + PrismC,'#0.0000')"/>
+						<xsl:with-param name="Width" select="10"/>
+					</xsl:call-template>
+					<xsl:value-of select="'  '"/>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="format-number(Hz * $AngleConvFactor,'#0.00000')"/>
+						<xsl:with-param name="Width" select="10"/>
+					</xsl:call-template>
+					<xsl:value-of select="'  '"/>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="format-number(V * $AngleConvFactor,'#0.00000')"/>
+						<xsl:with-param name="Width" select="10"/>
+					</xsl:call-template>
+					<xsl:value-of select="'  '"/>
+					<xsl:if test="FeatureCode != ''">
+						<xsl:value-of select="concat('|', FeatureCode, '|')"/>
+					</xsl:if>
+					<xsl:call-template name="NewLine"/>
+				</xsl:otherwise>
+			</xsl:choose>
+		</xsl:for-each>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- ******************** PointRecord Output ************************ -->
+	<!-- **************************************************************** -->
+	<xsl:template match="PointRecord">
+		<xsl:if test="Deleted = 'false'">
+			<xsl:call-template name="Observation"/>
+		</xsl:if>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- **************** Observation Details Output ******************** -->
+	<!-- **************************************************************** -->
+	<xsl:template name="Observation">
+		<xsl:variable name="stnID" select="StationID"/>
+		<!-- If this point is observed from a new station include a Point element with -->
+		<!-- its type element set to Station                                           -->
+		<xsl:if test="(position() = 1) or ($stnID != preceding-sibling::PointRecord[Deleted = 'false' and Circle][1]/StationID)">
+			<xsl:element name="Point">
+				<xsl:element name="type">Station</xsl:element>
+				<xsl:element name="Station">
+					<xsl:for-each select="key('StationID-search', StationID)[1]">
+						<xsl:value-of select="StationName"/>
+					</xsl:for-each>
+				</xsl:element>
+				<xsl:element name="InstrumentH">
+					<xsl:for-each select="key('StationID-search', StationID)[1]">
+						<xsl:value-of select="TheodoliteHeight"/>
+					</xsl:for-each>
+				</xsl:element>
+			</xsl:element>
+			<xsl:element name="Point">
+				<xsl:element name="type">Time</xsl:element>
+				<xsl:element name="Year">
+					<xsl:for-each select="key('StationID-search', StationID)[1]">
+						<xsl:value-of select="substring(@TimeStamp, 1, 4)"/>
+					</xsl:for-each>
+				</xsl:element>
+				<xsl:element name="Month">
+					<xsl:for-each select="key('StationID-search', StationID)[1]">
+						<xsl:value-of select="substring(@TimeStamp, 6, 2)"/>
+					</xsl:for-each>
+				</xsl:element>
+				<xsl:element name="Day">
+					<xsl:for-each select="key('StationID-search', StationID)[1]">
+						<xsl:value-of select="substring(@TimeStamp, 9, 2)"/>
+					</xsl:for-each>
+				</xsl:element>
+				<xsl:element name="Time">
+					<xsl:for-each select="key('StationID-search', StationID)[1]">
+						<xsl:value-of select="substring(@TimeStamp, 12, 5)"/>
+					</xsl:for-each>
+				</xsl:element>
+			</xsl:element>
+			<xsl:element name="Point">
+				<xsl:element name="type">Weather</xsl:element>
+				<xsl:variable name="AtmoID">
+					<xsl:for-each select="key('StationID-search', StationID)[1]">
+						<xsl:value-of select="AtmosphereID"/>
+					</xsl:for-each>
+				</xsl:variable>
+				<xsl:element name="Temperature">
+					<xsl:for-each select="key('AtmosphereID-search', $AtmoID)[1]">
+						<xsl:value-of select="Temperature"/>
+					</xsl:for-each>
+				</xsl:element>
+				<xsl:element name="Pressure">
+					<xsl:for-each select="key('AtmosphereID-search', $AtmoID)[1]">
+						<xsl:value-of select="Pressure"/>
+					</xsl:for-each>
+				</xsl:element>
+			</xsl:element>
+		</xsl:if>
+		<xsl:element name="Point">
+			<xsl:element name="type">Point</xsl:element>
+			<xsl:element name="InstrumentH">
+				<xsl:for-each select="key('StationID-search', StationID)[1]">
+					<xsl:value-of select="TheodoliteHeight"/>
+				</xsl:for-each>
+			</xsl:element>
+			<xsl:element name="ObsPoint">
+				<xsl:value-of select="Name"/>
+			</xsl:element>
+			<xsl:element name="Hz">
+				<xsl:value-of select="Circle/HorizontalCircle"/>
+			</xsl:element>
+			<xsl:element name="V">
+				<xsl:value-of select="Circle/VerticalCircle"/>
+			</xsl:element>
+			<xsl:element name="Dist">
+				<xsl:value-of select="Circle/EDMDistance"/>
+			</xsl:element>
+			<xsl:element name="FeatureCode">
+				<xsl:value-of select="Code"/>
+			</xsl:element>
+			<xsl:element name="TargetH">
+				<xsl:for-each select="key('TargetID-search', TargetID)[1]">
+					<xsl:value-of select="TargetHeight"/>
+				</xsl:for-each>
+			</xsl:element>
+			<xsl:element name="PrismC">
+				<xsl:for-each select="key('TargetID-search', TargetID)[1]">
+					<xsl:value-of select="PrismConstant"/>
+				</xsl:for-each>
+			</xsl:element>
+		</xsl:element>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- ********************** New Line Output ************************* -->
+	<!-- **************************************************************** -->
+	<xsl:template name="NewLine">
+		<xsl:text>&#xa;</xsl:text>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- *********** Pad a string to the left with spaces *************** -->
+	<!-- **************************************************************** -->
+	<xsl:template name="PadLeft">
+		<xsl:param name="Text"/>
+		<xsl:param name="Width"/>
+		<xsl:variable name="KonvText">
+			<xsl:choose>
+				<xsl:when test="$Text = 'NaN'">
+					<xsl:value-of select="$DefaultText"/>
+				</xsl:when>
+				<xsl:otherwise>
+					<xsl:value-of select="$Text"/>
+				</xsl:otherwise>
+			</xsl:choose>
+		</xsl:variable>
+		<xsl:choose>
+			<xsl:when test="$Width = 0">
+				<xsl:value-of select="normalize-space($KonvText)"/>
+			</xsl:when>
+			<xsl:otherwise>
+				<xsl:variable name="TempText" select="concat('                                       ', $KonvText)"/>
+				<xsl:value-of select="substring($TempText, string-length($TempText) - $Width + 1)"/>
+			</xsl:otherwise>
+		</xsl:choose>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- *********** Pad a string to the right with spaces ************** -->
+	<!-- **************************************************************** -->
+	<xsl:template name="PadRight">
+		<xsl:param name="Text"/>
+		<xsl:param name="Width"/>
+		<xsl:variable name="KonvText">
+			<xsl:choose>
+				<xsl:when test="$Text = 'NaN'">
+					<xsl:value-of select="$DefaultText"/>
+				</xsl:when>
+				<xsl:otherwise>
+					<xsl:value-of select="$Text"/>
+				</xsl:otherwise>
+			</xsl:choose>
+		</xsl:variable>
+		<xsl:choose>
+			<xsl:when test="$Width = 0">
+				<xsl:value-of select="normalize-space($KonvText)"/>
+			</xsl:when>
+			<xsl:otherwise>
+				<xsl:variable name="TempText" select="concat($KonvText, '                                       ')"/>
+				<xsl:value-of select="substring($TempText, 1, $Width)"/>
+			</xsl:otherwise>
+		</xsl:choose>
+	</xsl:template>
+</xsl:stylesheet>
+<!-- Stylus Studio meta-information - (c) 2004-2005. Progress Software Corporation. All rights reserved.
+<metaInformation>
+<scenarios ><scenario default="yes" name="Scenario1" userelativepaths="yes" externalpreview="no" url="..\Test allnav.xml" htmlbaseurl="" outputurl="" processortype="internal" profilemode="0" profiledepth="" profilelength="" urlprofilexml="" commandline="" additionalpath="" additionalclasspath="" postprocessortype="none" postprocesscommandline="" postprocessadditionalpath="" postprocessgeneratedext=""/></scenarios><MapperMetaTag><MapperInfo srcSchemaPathIsRelative="yes" srcSchemaInterpretAsXML="no" destSchemaPath="" destSchemaRoot="" destSchemaPathIsRelative="yes" destSchemaInterpretAsXML="no"/><MapperBlockPosition><template match="/"></template><template name="Observation"></template><template match="StationRecord"></template></MapperBlockPosition></MapperMetaTag>
+</metaInformation>
+-->

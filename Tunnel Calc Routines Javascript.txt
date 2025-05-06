@@ -1,0 +1,3806 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:msxsl="urn:schemas-microsoft-com:xslt"
+    xmlns:math="urn:schemas-microsoft-com:JavaScript">
+
+<!-- Functions available in this style sheet: -->
+<!--   GetProfilesMinMaxVals -->
+<!--   GetAlignmentOffsetLimits -->
+<!--   BuildTunnelProfiles -->
+<!--   CalcDistAroundTemplate -->
+<!--   TemplateElementForPoint -->
+<!--   CalcArcCentrePointAndDeltaAngle -->
+<!--   CalcArcEndPoint -->
+<!--   ComputeRotatedPoint -->
+<!--   IsUnderBreakPoint -->
+<!--   IsOverBreakPoint -->
+<!--   IsOutsideStnTolPoint -->
+<!--   GridSteps -->
+<!--   GridStepIncrement -->
+<!--   ComputeRotatedTemplate -->
+<!--   ApplyAlignmentOffsets -->
+<!--   TemplateDistPriorToIndex -->
+<!--   TemplateDistAlongElement -->
+<!--   AddTemplateElements -->
+<!--   ExtractDesignElements -->
+<!--   GetTemplateElements -->
+<!--   GetTemplateDeltas -->
+<!--   GetCommonTemplateSurfaces -->
+<!--   StandardInterpolatedElements -->
+<!--   NorwegianStyleSection -->
+<!--   SequentialArcCount -->
+<!--   NorwegianInterpolatedArcs -->
+<!--   BuildNorwegianInterpolatedArcs -->
+<!--   AssembleCompleteNorwegianTemplate -->
+<!--   ScribedAngle -->
+<!--   TemplatesAreEquivalent -->
+<!--   GetTemplateNames -->
+<!--   GetTemplateRotationValues -->
+<!--   GetTemplateOffsetValues -->
+<!--   NormalisedAngleBetweenPlusMinusPi -->
+<!--   RadiansClockwiseAngle -->
+<!--   FollowDirection -->
+<!--   ComputeRectangleCoords -->
+
+
+<!-- **************************************************************** -->
+<!-- ******** Returns node set containing min and max values ******** -->
+<!-- **************************************************************** -->
+<xsl:template name="GetProfilesMinMaxVals">
+  <xsl:param name="showDesignLines">Yes</xsl:param>
+
+  <xsl:variable name="pointsHzSort">
+    <xsl:for-each select="JOBFile/FieldBook/TunnelCrossSectionRecord/TunnelPointDeltaRecord">
+      <xsl:sort order="ascending" data-type="number" select="HorizontalOffset"/>
+      <!-- Check that the referenced observation is not deleted -->
+      <xsl:variable name="deleted">
+        <xsl:for-each select="key('obsPointID-search', ObservationID)">
+          <xsl:value-of select="Deleted"/>
+        </xsl:for-each>
+      </xsl:variable>
+      <xsl:if test="$deleted = 'false'">
+        <xsl:copy>
+          <xsl:copy-of select="*"/>
+        </xsl:copy>
+      </xsl:if>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:variable name="pointsVtSort">
+    <xsl:for-each select="JOBFile/FieldBook/TunnelCrossSectionRecord/TunnelPointDeltaRecord">
+      <xsl:sort order="ascending" data-type="number" select="VerticalOffset"/>
+      <!-- Check that the referenced observation is not deleted -->
+      <xsl:variable name="deleted">
+        <xsl:for-each select="key('obsPointID-search', ObservationID)">
+          <xsl:value-of select="Deleted"/>
+        </xsl:for-each>
+      </xsl:variable>
+      <xsl:if test="$deleted = 'false'">
+        <xsl:copy>
+          <xsl:copy-of select="*"/>
+        </xsl:copy>
+      </xsl:if>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:variable name="templatePoints">   <!-- Allow for design template points as well -->
+    <xsl:if test="$showDesignLines = 'Yes'">
+      <xsl:for-each select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplateRecord">
+        <xsl:call-template name="GetTemplateElements">
+          <xsl:with-param name="templateName" select="Name"/>
+        </xsl:call-template>
+      </xsl:for-each>
+    </xsl:if>
+  </xsl:variable>
+
+  <xsl:variable name="offsetLimits">
+    <xsl:call-template name="GetAlignmentOffsetLimits"/>
+  </xsl:variable>
+
+  <xsl:variable name="templateHzValues">
+    <xsl:for-each select="msxsl:node-set($templatePoints)/templateSurface/element">
+      <xsl:element name="hzVal">
+        <xsl:value-of select="startHz"/>
+      </xsl:element>
+      <xsl:element name="hzVal">
+        <xsl:value-of select="endHz"/>
+      </xsl:element>
+      <xsl:if test="string(number(midPtHz)) != 'NaN'">
+        <xsl:element name="hzVal">
+          <xsl:value-of select="midPtHz"/>
+        </xsl:element>
+      </xsl:if>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:variable name="templateHzValuesSort">
+    <xsl:for-each select="msxsl:node-set($templateHzValues)/hzVal">
+      <xsl:sort order="ascending" data-type="number" select="."/>
+      <xsl:copy-of select="."/>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:variable name="templateVtValues">
+    <xsl:for-each select="msxsl:node-set($templatePoints)/templateSurface/element">
+      <xsl:element name="vtVal">
+        <xsl:value-of select="startVt"/>
+      </xsl:element>
+      <xsl:element name="vtVal">
+        <xsl:value-of select="endVt"/>
+      </xsl:element>
+      <xsl:if test="string(number(midPtVt)) != 'NaN'">
+        <xsl:element name="vtVal">
+          <xsl:value-of select="midPtVt"/>
+        </xsl:element>
+      </xsl:if>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:variable name="templateVtValuesSort">
+    <xsl:for-each select="msxsl:node-set($templateVtValues)/vtVal">
+      <xsl:sort order="ascending" data-type="number" select="."/>
+      <xsl:copy-of select="."/>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:element name="minX">
+    <xsl:choose>
+      <xsl:when test="count(msxsl:node-set($templateHzValuesSort)/hzVal) = 0">
+        <xsl:value-of select="msxsl:node-set($pointsHzSort)/TunnelPointDeltaRecord[1]/HorizontalOffset"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:choose>
+          <xsl:when test="(msxsl:node-set($templateHzValuesSort)/hzVal[1] + msxsl:node-set($offsetLimits)/maxLeftOffset ) &lt; msxsl:node-set($pointsHzSort)/TunnelPointDeltaRecord[1]/HorizontalOffset">
+            <xsl:value-of select="msxsl:node-set($templateHzValuesSort)/hzVal[1] + msxsl:node-set($offsetLimits)/maxLeftOffset"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="msxsl:node-set($pointsHzSort)/TunnelPointDeltaRecord[1]/HorizontalOffset"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:element>
+
+  <xsl:element name="maxX">
+    <xsl:choose>
+      <xsl:when test="count(msxsl:node-set($templateHzValuesSort)/hzVal) = 0">
+        <xsl:value-of select="msxsl:node-set($pointsHzSort)/TunnelPointDeltaRecord[last()]/HorizontalOffset"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:choose>
+          <xsl:when test="(msxsl:node-set($templateHzValuesSort)/hzVal[last()] + msxsl:node-set($offsetLimits)/maxRightOffset) &gt; msxsl:node-set($pointsHzSort)/TunnelPointDeltaRecord[last()]/HorizontalOffset">
+            <xsl:value-of select="msxsl:node-set($templateHzValuesSort)/hzVal[last()] + msxsl:node-set($offsetLimits)/maxRightOffset"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="msxsl:node-set($pointsHzSort)/TunnelPointDeltaRecord[last()]/HorizontalOffset"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:element>
+
+  <xsl:element name="minY">
+    <xsl:choose>
+      <xsl:when test="count(msxsl:node-set($templateVtValuesSort)/vtVal) = 0">
+        <xsl:value-of select="msxsl:node-set($pointsVtSort)/TunnelPointDeltaRecord[1]/VerticalOffset"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:choose>
+          <xsl:when test="(msxsl:node-set($templateVtValuesSort)/vtVal[1] + msxsl:node-set($offsetLimits)/maxDownOffset) &lt; msxsl:node-set($pointsVtSort)/TunnelPointDeltaRecord[1]/VerticalOffset">
+            <xsl:value-of select="msxsl:node-set($templateVtValuesSort)/vtVal[1] + msxsl:node-set($offsetLimits)/maxDownOffset"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="msxsl:node-set($pointsVtSort)/TunnelPointDeltaRecord[1]/VerticalOffset"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:element>
+
+  <xsl:element name="maxY">
+    <xsl:choose>
+      <xsl:when test="count(msxsl:node-set($templateVtValuesSort)/vtVal) = 0">
+        <xsl:value-of select="msxsl:node-set($pointsVtSort)/TunnelPointDeltaRecord[last()]/VerticalOffset"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:choose>
+          <xsl:when test="(msxsl:node-set($templateVtValuesSort)/vtVal[last()] + msxsl:node-set($offsetLimits)/maxUpOffset) &gt; msxsl:node-set($pointsVtSort)/TunnelPointDeltaRecord[last()]/VerticalOffset">
+            <xsl:value-of select="msxsl:node-set($templateVtValuesSort)/vtVal[last()] + msxsl:node-set($offsetLimits)/maxUpOffset"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="msxsl:node-set($pointsVtSort)/TunnelPointDeltaRecord[last()]/VerticalOffset"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:element>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *** Returns node set containing the alignment offset limits **** -->
+<!-- **************************************************************** -->
+<xsl:template name="GetAlignmentOffsetLimits">
+  <xsl:param name="showDesignLines">Yes</xsl:param>
+
+  <xsl:choose>
+    <xsl:when test="($showDesignLines = 'Yes') and (count(msxsl:node-set($tunnelDefinition)/TrimbleTunnel/AlignmentOffsets/ApplyOffsets) != 0)">
+      <xsl:variable name="hzOffsets">
+        <xsl:for-each select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/AlignmentOffsets/ApplyOffsets">
+          <xsl:element name="offset">
+            <xsl:value-of select="HorizontalOffset"/>
+          </xsl:element>
+        </xsl:for-each>
+      </xsl:variable>
+
+      <xsl:variable name="sortedHzOffsets">
+        <xsl:for-each select="msxsl:node-set($hzOffsets)/offset">
+          <xsl:sort order="ascending" data-type="number" select="."/>
+          <xsl:copy-of select="."/>
+        </xsl:for-each>
+      </xsl:variable>
+
+      <xsl:element name="maxLeftOffset">
+        <xsl:choose>
+          <xsl:when test="msxsl:node-set($sortedHzOffsets)/offset[1] &gt;= 0.0">0</xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="msxsl:node-set($sortedHzOffsets)/offset[1]"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:element>
+
+      <xsl:element name="maxRightOffset">
+        <xsl:choose>
+          <xsl:when test="msxsl:node-set($sortedHzOffsets)/offset[last()] &lt;= 0.0">0</xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="msxsl:node-set($sortedHzOffsets)/offset[last()]"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:element>
+
+      <xsl:variable name="vtOffsets">
+        <xsl:for-each select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/AlignmentOffsets/ApplyOffsets">
+          <xsl:element name="offset">
+            <xsl:value-of select="VerticalOffset"/>
+          </xsl:element>
+        </xsl:for-each>
+      </xsl:variable>
+
+      <xsl:variable name="sortedVtOffsets">
+        <xsl:for-each select="msxsl:node-set($vtOffsets)/offset">
+          <xsl:sort order="ascending" data-type="number" select="."/>
+          <xsl:copy-of select="."/>
+        </xsl:for-each>
+      </xsl:variable>
+
+      <xsl:element name="maxDownOffset">
+        <xsl:choose>
+          <xsl:when test="msxsl:node-set($sortedVtOffsets)/offset[1] &gt;= 0.0">0</xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="msxsl:node-set($sortedVtOffsets)/offset[1]"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:element>
+
+      <xsl:element name="maxUpOffset">
+        <xsl:choose>
+          <xsl:when test="msxsl:node-set($sortedVtOffsets)/offset[last()] &lt;= 0.0">0</xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="msxsl:node-set($sortedVtOffsets)/offset[last()]"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:element>
+    </xsl:when>
+
+    <xsl:otherwise>
+      <xsl:element name="maxLeftOffset">0</xsl:element>
+      <xsl:element name="maxRightOffset">0</xsl:element>
+      <xsl:element name="maxUpOffset">0</xsl:element>
+      <xsl:element name="maxDownOffset">0</xsl:element>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******** Returns node set containing the tunnel profiles ******* -->
+<!-- **************************************************************** -->
+<xsl:template name="BuildTunnelProfiles">
+  <xsl:param name="allProfilesMinMax"/>
+  <xsl:param name="gridSizeX">0</xsl:param>
+  <xsl:param name="gridSizeY">0</xsl:param>
+  <xsl:param name="startStn">0</xsl:param>
+  <xsl:param name="endStn">0</xsl:param>
+  <xsl:param name="annotatePoints">true</xsl:param>
+  <xsl:param name="showDesignLines">Yes</xsl:param>
+  <xsl:param name="includePtCodes">false</xsl:param>
+  <xsl:param name="computeProfileOffsets">No</xsl:param>
+
+  <xsl:for-each select="JOBFile/FieldBook/TunnelCrossSectionRecord">
+    <xsl:sort order="ascending" data-type="number" select="Station"/>
+    <xsl:variable name="stn" select="Station"/>
+    <xsl:variable name="templateSurface">
+      <xsl:choose>
+        <xsl:when test="string(TemplateSurface) != ''">
+          <xsl:value-of select="TemplateSurface"/>
+        </xsl:when>
+        <xsl:otherwise>DefaultXSLSurface</xsl:otherwise>  <!-- No surface defined so from pre multiple surface support - set to internal default surface -->
+      </xsl:choose>
+    </xsl:variable>
+
+    <xsl:if test="(Station &gt;= number($startStn)) and (Station &lt;= number($endStn))">
+      <xsl:variable name="stnTolerance">
+        <xsl:choose>
+          <xsl:when test="preceding-sibling::TunnelSettingsRecord[1]/StationTolerance">
+            <xsl:value-of select="preceding-sibling::TunnelSettingsRecord[1]/StationTolerance"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="preceding-sibling::TunnelSettingsRecord[1]/ScanStationTolerance"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+      <xsl:variable name="overbreakTolerance">
+        <xsl:choose>
+          <xsl:when test="preceding-sibling::TunnelSettingsRecord[1]/OverbreakTolerance">
+            <xsl:value-of select="preceding-sibling::TunnelSettingsRecord[1]/OverbreakTolerance"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="preceding-sibling::TunnelSettingsRecord[1]/ScanOverbreakTolerance"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+      <xsl:variable name="underbreakTolerance">
+        <xsl:choose>
+          <xsl:when test="preceding-sibling::TunnelSettingsRecord[1]/UnderbreakTolerance">
+            <xsl:value-of select="preceding-sibling::TunnelSettingsRecord[1]/UnderbreakTolerance"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="preceding-sibling::TunnelSettingsRecord[1]/ScanUnderbreakTolerance"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+
+      <xsl:variable name="profileDeltas">
+        <!-- Ensure we have the first TunnelCrossSectionRecord for a given station and template surface (either   -->
+        <!-- the template surface specified in the TunnelCrossSectionRecord or, if there is no template surface   -->
+        <!-- specified (an older format file) then the template surface will use the internal 'DefaultXSLSurface' -->
+        <!-- name.                                                                                                -->
+        <xsl:if test="count(preceding-sibling::TunnelCrossSectionRecord[(Station = $stn) and
+                                                                        ((TemplateSurface = $templateSurface) or
+                                                                         ((string(TemplateSurface) = '') and
+                                                                          ($templateSurface = 'DefaultXSLSurface')))]) = 0">
+          <!-- Add the points from the first profile scan at this station if:  -->
+          <!-- 1. Outputting all scanned points at this station or             -->
+          <!-- 2. Only outputting last scanned points and this is the one and  -->
+          <!--    only scan at this station                                    -->
+          <xsl:if test="($profilePointsToUse = 'All measured points on profile') or
+                        (($profilePointsToUse = 'Last measured points on profile') and
+                         (count(following-sibling::TunnelCrossSectionRecord[(Station = $stn) and
+                                                                            ((TemplateSurface = $templateSurface) or
+                                                                             ((string(TemplateSurface) = '') and
+                                                                              ($templateSurface = 'DefaultXSLSurface')))]) = 0))">
+            <xsl:for-each select="TunnelPointDeltaRecord">
+              <!-- Only add deltas for non-deleted points -->
+              <xsl:variable name="obsID" select="ObservationID"/>
+              <xsl:if test="/JOBFile/FieldBook/PointRecord[(@ID = $obsID) and (Deleted = 'false')]">
+                <xsl:element name="TunnelPointDeltaRecord" namespace="">
+                  <xsl:copy-of select="./*"/>
+                  <xsl:element name="obsPtName">
+                    <xsl:value-of select="/JOBFile/FieldBook/PointRecord[@ID = $obsID]/Name"/>
+                  </xsl:element>
+                  <xsl:if test="$includePtCodes != 'false'">
+                    <xsl:element name="obsPtCode">
+                      <xsl:value-of select="/JOBFile/FieldBook/PointRecord[@ID = $obsID]/Code"/>
+                    </xsl:element>
+                  </xsl:if>
+                </xsl:element>
+              </xsl:if>
+            </xsl:for-each>
+          </xsl:if>
+
+          <xsl:for-each select="following-sibling::TunnelCrossSectionRecord[(Station = $stn) and
+                                                                            ((TemplateSurface = $templateSurface) or
+                                                                             ((string(TemplateSurface) = '') and
+                                                                              ($templateSurface = 'DefaultXSLSurface')))]">
+            <!-- Use the same test for each subsequent TunnelCrossSectionRecord -->
+            <!-- encountered with the same station value and template surface.  -->
+            <xsl:if test="($profilePointsToUse = 'All measured points on profile') or
+                          (($profilePointsToUse = 'Last measured points on profile') and
+                           (count(following-sibling::TunnelCrossSectionRecord[(Station = $stn) and ((TemplateSurface = $templateSurface) or
+                                                                              ((string(TemplateSurface) = '') and ($templateSurface = 'DefaultXSLSurface')))]) = 0))">
+              <xsl:for-each select="TunnelPointDeltaRecord">
+                <!-- Only add deltas for non-deleted points -->
+                <xsl:variable name="obsID" select="ObservationID"/>
+                <xsl:if test="/JOBFile/FieldBook/PointRecord[(@ID = $obsID) and (Deleted = 'false')]">
+                  <xsl:element name="TunnelPointDeltaRecord" namespace="">
+                    <xsl:copy-of select="./*"/>
+                    <xsl:element name="obsPtName">
+                      <xsl:value-of select="/JOBFile/FieldBook/PointRecord[@ID = $obsID]/Name"/>
+                    </xsl:element>
+                    <xsl:if test="$includePtCodes != 'false'">
+                      <xsl:element name="obsPtCode">
+                        <xsl:value-of select="/JOBFile/FieldBook/PointRecord[@ID = $obsID]/Code"/>
+                      </xsl:element>
+                    </xsl:if>
+                  </xsl:element>
+                </xsl:if>
+              </xsl:for-each>
+            </xsl:if>
+          </xsl:for-each>
+        </xsl:if>
+      </xsl:variable>
+
+      <xsl:if test="count(msxsl:node-set($profileDeltas)/TunnelPointDeltaRecord) != 0"> <!-- There are some deltas to output -->
+        <xsl:variable name="rangeX" select="(msxsl:node-set($allProfilesMinMax)/maxX - msxsl:node-set($allProfilesMinMax)/minX)"/>
+        <xsl:variable name="rangeY" select="(msxsl:node-set($allProfilesMinMax)/maxY - msxsl:node-set($allProfilesMinMax)/minY)"/>
+
+        <xsl:variable name="extentXY">
+          <xsl:choose>
+            <xsl:when test="$rangeX &gt; $rangeY">
+              <xsl:value-of select="$rangeX"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="$rangeY"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+
+        <xsl:element name="profile">
+          <xsl:element name="tunnelName" namespace="">
+            <xsl:value-of select="TunnelName"/>
+          </xsl:element>
+          <xsl:copy-of select="Station"/>
+          <xsl:copy-of select="EquatedStation"/>
+          <xsl:element name="TemplateSurface" namespace="">
+            <xsl:value-of select="$templateSurface"/>
+          </xsl:element>
+          <xsl:element name="stationTolerance" namespace="">
+            <xsl:value-of select="$stnTolerance"/>
+          </xsl:element>
+          <xsl:element name="overbreakTolerance" namespace="">
+            <xsl:value-of select="$overbreakTolerance"/>
+          </xsl:element>
+          <xsl:element name="underbreakTolerance" namespace="">
+            <xsl:value-of select="$underbreakTolerance"/>
+          </xsl:element>
+
+          <xsl:element name="extentXY" namespace="">
+            <xsl:value-of select="$extentXY"/>
+          </xsl:element>
+
+          <xsl:element name="minX" namespace="">
+            <xsl:value-of select="msxsl:node-set($allProfilesMinMax)/minX"/>
+          </xsl:element>
+
+          <xsl:element name="minY" namespace="">
+            <xsl:value-of select="msxsl:node-set($allProfilesMinMax)/minY"/>
+          </xsl:element>
+
+          <xsl:variable name="scaleRatio">
+            <xsl:variable name="fractionOfGridUsed">
+              <xsl:choose>
+                <xsl:when test="$annotatePoints = 'true'">0.75</xsl:when>
+                <xsl:otherwise>0.9</xsl:otherwise>
+              </xsl:choose>
+            </xsl:variable>
+            <xsl:variable name="scaleRatioX"><xsl:value-of select="$gridSizeX * $fractionOfGridUsed div $rangeX"/></xsl:variable>
+            <xsl:variable name="scaleRatioY"><xsl:value-of select="$gridSizeY * $fractionOfGridUsed div $rangeY"/></xsl:variable>
+            <xsl:choose>
+              <xsl:when test="$scaleRatioX &lt; $scaleRatioY">
+                <xsl:value-of select="$scaleRatioX"/>
+              </xsl:when>
+              <xsl:otherwise>
+                <xsl:value-of select="$scaleRatioY"/>
+              </xsl:otherwise>
+            </xsl:choose>
+          </xsl:variable>
+
+          <xsl:element name="scaleRatio" namespace="">
+            <xsl:value-of select="$scaleRatio"/>
+          </xsl:element>
+
+          <xsl:element name="borderX" namespace="">
+            <xsl:value-of select="($gridSizeX - $scaleRatio * $rangeX) div 2"/>
+          </xsl:element>
+
+          <xsl:element name="borderY" namespace="">
+            <xsl:value-of select="($gridSizeY - $scaleRatio * $rangeY) div 2"/>
+          </xsl:element>
+
+          <!-- Now include the design definition at this station -->
+          <!-- Put into a node-set variable so that it can be used in the sorting of the measured points -->
+          <xsl:variable name="designTemplate">
+            <xsl:if test="$showDesignLines = 'Yes'">
+              <!-- Get the rotation values that apply at this station -->
+              <xsl:variable name="templateRotationVals">
+                <xsl:call-template name="GetTemplateRotationValues">
+                  <xsl:with-param name="station" select="Station"/>
+                </xsl:call-template>
+              </xsl:variable>
+
+              <!-- Get the alignment offset values that apply at this station -->
+              <xsl:variable name="templateOffsetVals">
+                <xsl:call-template name="GetTemplateOffsetValues">
+                  <xsl:with-param name="station" select="Station"/>
+                </xsl:call-template>
+              </xsl:variable>
+
+              <xsl:variable name="templateWithoutOffsets">
+                <xsl:choose>
+                  <xsl:when test="msxsl:node-set($templateRotationVals)/rotationAngle != 0">
+                    <xsl:variable name="unrotatedTemplate">
+                      <xsl:call-template name="ExtractDesignElements">
+                        <xsl:with-param name="station" select="Station"/>
+                      </xsl:call-template>
+                    </xsl:variable>
+
+                    <xsl:call-template name="ComputeRotatedTemplate">
+                      <xsl:with-param name="unrotatedTemplate" select="$unrotatedTemplate"/>
+                      <xsl:with-param name="templateRotationVals" select="$templateRotationVals"/>
+                    </xsl:call-template>
+                  </xsl:when>
+                  <xsl:otherwise>
+                    <xsl:call-template name="ExtractDesignElements">
+                      <xsl:with-param name="station" select="Station"/>
+                    </xsl:call-template>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+
+              <xsl:call-template name="ApplyAlignmentOffsets">
+                <xsl:with-param name="template" select="$templateWithoutOffsets"/>
+                <xsl:with-param name="templateOffsetVals" select="$templateOffsetVals"/>
+              </xsl:call-template>
+            </xsl:if>
+          </xsl:variable>
+
+          <xsl:variable name="hzOffsets">
+            <xsl:for-each select="msxsl:node-set($profileDeltas)/TunnelPointDeltaRecord">
+              <xsl:sort data-type="number" order="ascending" select="HorizontalOffset"/>
+              <xsl:element name="offset">
+                <xsl:value-of select="HorizontalOffset"/>
+              </xsl:element>
+            </xsl:for-each>
+          </xsl:variable>
+
+          <xsl:variable name="vtOffsets">
+            <xsl:for-each select="msxsl:node-set($profileDeltas)/TunnelPointDeltaRecord">
+              <xsl:sort data-type="number" order="ascending" select="VerticalOffset"/>
+              <xsl:element name="offset">
+                <xsl:value-of select="VerticalOffset"/>
+              </xsl:element>
+            </xsl:for-each>
+          </xsl:variable>
+
+          <xsl:variable name="hzCentroid" select="(msxsl:node-set($hzOffsets)/offset[1] + msxsl:node-set($hzOffsets)/offset[last()]) div 2.0"/>
+          <xsl:variable name="vtCentroid" select="(msxsl:node-set($vtOffsets)/offset[1] + msxsl:node-set($vtOffsets)/offset[last()]) div 2.0"/>
+
+          <!-- Hold all the tunnel deltas in a variable so that the distance around the design  -->
+          <!-- or the direction from the centroid position to each delta position can be        -->
+          <!-- computed for use in sorting the positions.                                       -->
+          <xsl:variable name="tunnelDeltas">
+            <xsl:for-each select="msxsl:node-set($profileDeltas)/TunnelPointDeltaRecord">
+              <xsl:copy>
+                <xsl:copy-of select="* | @*"/>
+                <xsl:element name="name">
+                  <xsl:value-of select="obsPtName"/>
+                </xsl:element>
+
+                <xsl:choose>
+                  <xsl:when test="$showDesignLines = 'Yes'"> <!-- Sort by distance around the design template -->
+                    <xsl:variable name="distAroundAndCalcdDelta">
+                      <xsl:call-template name="CalcDistAroundTemplate">
+                        <xsl:with-param name="designTemplate" select="$designTemplate"/>
+                        <xsl:with-param name="templateSurface" select="$templateSurface"/>
+                        <xsl:with-param name="ptHz" select="HorizontalOffset"/>
+                        <xsl:with-param name="ptVt" select="VerticalOffset"/>
+                      </xsl:call-template>
+                    </xsl:variable>
+                    <xsl:element name="sortVal">
+                      <xsl:value-of select="msxsl:node-set($distAroundAndCalcdDelta)/distAround"/>
+                    </xsl:element>
+                    <xsl:element name="calcDelta">
+                      <xsl:value-of select="msxsl:node-set($distAroundAndCalcdDelta)/calcdDelta"/>
+                    </xsl:element>
+                  </xsl:when>
+                  <xsl:otherwise>  <!-- Compute angle around cross-section from 0° down to use for sorting -->
+                    <xsl:variable name="rawDir">
+                      <xsl:call-template name="InverseAzimuth">
+                        <xsl:with-param name="deltaN" select="VerticalOffset - $vtCentroid"/>
+                        <xsl:with-param name="deltaE" select="HorizontalOffset - $hzCentroid"/>
+                        <xsl:with-param name="returnInRadians">true</xsl:with-param>
+                      </xsl:call-template>
+                    </xsl:variable>
+                    <!-- Now add 180° (Pi) to the rawDir to end up with angles based on 0° down -->
+                    <xsl:element name="sortVal">
+                      <xsl:call-template name="RadianAngleBetweenLimits">
+                        <xsl:with-param name="anAngle" select="$rawDir + math:PI()"/>
+                      </xsl:call-template>
+                    </xsl:element>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:copy>
+            </xsl:for-each>
+          </xsl:variable>
+
+          <!-- Add the tunnel deltas (sorted by distance around design or direction) -->
+          <xsl:for-each select="msxsl:node-set($tunnelDeltas)/*">
+            <xsl:sort data-type="number" order="ascending" select="sortVal"/>
+            <xsl:copy>
+              <xsl:copy-of select="* | @*"/>
+            </xsl:copy>
+          </xsl:for-each>
+
+          <!-- Now include the design definition at this station -->
+          <xsl:element name="design">
+            <xsl:copy-of select="$designTemplate"/>
+          </xsl:element>
+
+          <!-- Output details relating to the position on the alignment                 -->
+          <!-- Provides these elements if $computeProfileOffsets = 'Yes':               -->
+          <!--   <alignDetails>                                                         -->
+          <!--     <templateApplyMethod>Perpendicular or Vertical</templateApplyMethod> -->
+          <!--     <grade></grade>                                                      -->
+          <!--     <azimuth></azimuth>  (Decimal degrees)                               -->
+          <!--     <clCoordinates>                                                      -->
+          <!--       <north></north>                                                    -->
+          <!--       <east></east>                                                      -->
+          <!--       <elevation></elevation>                                            -->
+          <!--     </clCoordinates>                                                     -->
+          <!--     <meanStn></meanStn>                                                  -->
+          <!--   </alignDetails>                                                        -->
+          <!-- Otherwise provides these elements:                                       -->
+          <!--   <alignDetails>                                                         -->
+          <!--     <clCoordinates>                                                      -->
+          <!--       <elevation></elevation>                                            -->
+          <!--     </clCoordinates>                                                     -->
+          <!--   </alignDetails>                                                        -->
+
+          <xsl:variable name="vertAlignment">
+            <xsl:copy-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/VerticalAlignment/*"/>
+          </xsl:variable>
+
+          <xsl:element name="alignDetails">
+            <xsl:choose>
+              <xsl:when test="$computeProfileOffsets = 'Yes'"> <!-- Only add these elements if required as the computation is quite intensive -->
+                <xsl:element name="templateApplyMethod">  <!-- Either Perpendicular or Vertical -->
+                  <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplatePositioning/@templateApplyMethod"/>
+                </xsl:element>
+
+                <xsl:element name="grade">
+                  <xsl:call-template name="GradeAtStationAsPercentage">
+                    <xsl:with-param name="theStation" select="$stn"/>
+                    <xsl:with-param name="vertAlignment" select="$vertAlignment"/>
+                  </xsl:call-template>
+                </xsl:element>
+
+                <xsl:element name="azimuth">
+                  <xsl:call-template name="InstantaneousAzimuth">
+                    <xsl:with-param name="horizAlignment" select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/HorizontalAlignment"/>
+                    <xsl:with-param name="station" select="$stn"/>
+                  </xsl:call-template>
+                </xsl:element>
+
+                <!-- Compute the centreline coordinates at the average station of the scanned -->
+                <!-- cross-section = $stn (design station) + mean DeltaStation                -->
+                <xsl:variable name="meanStn" select="$stn + sum(msxsl:node-set($profileDeltas)/TunnelPointDeltaRecord/DeltaStation) div
+                                                            count(msxsl:node-set($profileDeltas)/TunnelPointDeltaRecord/DeltaStation)"/>
+                
+                <xsl:element name="clCoordinates">
+                  <xsl:variable name="coords">
+                    <xsl:call-template name="PositionAtStation">
+                      <xsl:with-param name="horizAlignment" select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/HorizontalAlignment"/>
+                      <xsl:with-param name="station" select="$meanStn"/>
+                    </xsl:call-template>
+                  </xsl:variable>
+
+                  <!-- We only want the north and east components -->
+                  <xsl:element name="north">
+                    <xsl:value-of select="msxsl:node-set($coords)/north"/>
+                  </xsl:element>
+
+                  <xsl:element name="east">
+                    <xsl:value-of select="msxsl:node-set($coords)/east"/>
+                  </xsl:element>
+
+                  <xsl:element name="elevation">
+                    <xsl:call-template name="ElevationAtStation">
+                      <xsl:with-param name="theStation" select="$meanStn"/>
+                      <xsl:with-param name="vertAlignment" select="$vertAlignment"/>
+                    </xsl:call-template>
+                  </xsl:element>
+                </xsl:element>
+                <xsl:element name="meanStn">
+                  <xsl:value-of select="$meanStn"/>
+                </xsl:element>
+              </xsl:when>
+
+              <xsl:otherwise>  <!-- Only need elevation value -->
+                <xsl:element name="clCoordinates">
+                  <xsl:element name="elevation">
+                    <xsl:call-template name="ElevationAtStation">
+                      <xsl:with-param name="theStation" select="$stn"/>  <!-- Simply use the design station in this case -->
+                      <xsl:with-param name="vertAlignment" select="$vertAlignment"/>
+                    </xsl:call-template>
+                  </xsl:element>
+                </xsl:element>
+              </xsl:otherwise>
+            </xsl:choose>
+          </xsl:element>
+
+          <xsl:if test="$computeProfileOffsets = 'Yes'">
+            <!-- Output details relating to the design and computed profile centre        -->
+            <!-- Provides elements:                                                       -->
+            <!--   <profileOffsets>                                                       -->
+            <!--     <hzOffsetComputed></hzOffsetComputed>                                -->
+            <!--     <vtOffsetComputed></vtOffsetComputed>                                -->
+            <!--     <hzOffsetDesign></hzOffsetDesign>                                    -->
+            <!--     <vtOffsetDesign></vtOffsetDesign>                                    -->
+            <!--     <hzOffsetDelta></hzOffsetDelta>                                      -->
+            <!--     <vtOffsetDelta></vtOffsetDelta>                                      -->
+            <!--     <polarDelta></polarDelta>                                            -->
+            <!--     <computedRadius></computedRadius>                                    -->
+            <!--   </profileOffsets>                                                      -->
+
+            <!-- Also provides a set of elements giving the deltas to the circle formed   -->
+            <!-- by the computed radius applied to the computed centre position           -->
+            <!--   <calcCircleDeltas>                                                     -->
+            <!--     <delta name=""></delta>                                              -->
+            <!--   </calcCircleDeltas>                                                    -->
+
+            <!-- Build the points element from the TunnelPointDeltaRecord elements -->
+            <xsl:variable name="points">
+              <xsl:for-each select="msxsl:node-set($tunnelDeltas)/TunnelPointDeltaRecord">
+                <xsl:element name="point">
+                  <xsl:element name="x">
+                    <xsl:value-of select="HorizontalOffset"/>
+                  </xsl:element>
+                  <xsl:element name="y">
+                    <xsl:value-of select="VerticalOffset"/>
+                  </xsl:element>
+                </xsl:element>
+              </xsl:for-each>
+            </xsl:variable>
+
+            <xsl:variable name="computedProfileCentre">
+              <xsl:call-template name="LeastSquaresCircleFit">
+                <xsl:with-param name="points" select="$points"/>
+              </xsl:call-template>
+            </xsl:variable>
+
+            <xsl:variable name="designProfileCentre">
+              <!-- Since this is designed to work with circular profiles only find    -->
+              <!-- the centre point of the first arc in the design profile definition -->
+              <!-- and use it as the design centre point.                             -->
+              <xsl:for-each select="msxsl:node-set($designTemplate)/templateSurface[@name = $templateSurface]/element[centreHz][1]">
+                <xsl:element name="x">
+                  <xsl:value-of select="centreHz"/>
+                </xsl:element>
+                <xsl:element name="y">
+                  <xsl:value-of select="centreVt"/>
+                </xsl:element>
+              </xsl:for-each>
+            </xsl:variable>
+
+            <xsl:element name="profileOffsets">
+              <xsl:variable name="hzOffsetDelta" select="msxsl:node-set($designProfileCentre)/x - msxsl:node-set($computedProfileCentre)/centreX"/>
+              <xsl:variable name="vtOffsetDelta" select="msxsl:node-set($designProfileCentre)/y - msxsl:node-set($computedProfileCentre)/centreY"/>
+              <xsl:element name="hzOffsetComputed">
+                <xsl:value-of select="msxsl:node-set($computedProfileCentre)/centreX"/>
+              </xsl:element>
+              <xsl:element name="vtOffsetComputed">
+                <xsl:value-of select="msxsl:node-set($computedProfileCentre)/centreY"/>
+              </xsl:element>
+              <xsl:element name="hzOffsetDesign">
+                <xsl:value-of select="msxsl:node-set($designProfileCentre)/x"/>
+              </xsl:element>
+              <xsl:element name="vtOffsetDesign">
+                <xsl:value-of select="msxsl:node-set($designProfileCentre)/y"/>
+              </xsl:element>
+              <xsl:element name="hzOffsetDelta">
+                <xsl:value-of select="$hzOffsetDelta"/>
+              </xsl:element>
+              <xsl:element name="vtOffsetDelta">
+                <xsl:value-of select="$vtOffsetDelta"/>
+              </xsl:element>
+              <xsl:element name="polarDelta">
+                <xsl:value-of select="math:sqrt(number($hzOffsetDelta * $hzOffsetDelta + $vtOffsetDelta * $vtOffsetDelta))"/>
+              </xsl:element>
+              <xsl:element name="computedRadius">
+                <xsl:value-of select="msxsl:node-set($computedProfileCentre)/radius"/>
+              </xsl:element>
+            </xsl:element>
+            
+            <!-- Create the calcCircleDeltas element -->
+            <xsl:element name="calcCircleDeltas">
+              <xsl:for-each select="msxsl:node-set($tunnelDeltas)/TunnelPointDeltaRecord">
+                <xsl:variable name="calcRadialDist">
+                  <xsl:call-template name="InverseDistance">
+                    <xsl:with-param name="deltaN" select="VerticalOffset   - msxsl:node-set($computedProfileCentre)/centreY"/>
+                    <xsl:with-param name="deltaE" select="HorizontalOffset - msxsl:node-set($computedProfileCentre)/centreX"/>
+                  </xsl:call-template>
+                </xsl:variable>
+                
+                <xsl:element name="delta">
+                  <xsl:attribute name="name">  <!-- Set up name attribute to match deltas up based on name -->
+                    <xsl:value-of select="name"/>
+                  </xsl:attribute>
+                  <xsl:value-of select="$calcRadialDist - msxsl:node-set($computedProfileCentre)/radius"/>
+                </xsl:element>
+              </xsl:for-each>
+            </xsl:element>
+          </xsl:if>
+        </xsl:element>   <!-- profile element -->
+      </xsl:if>
+    </xsl:if>  <!-- In station range -->
+  </xsl:for-each>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Returns distance around template for point ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="CalcDistAroundTemplate">
+  <xsl:param name="designTemplate"/>
+  <xsl:param name="templateSurface"/>  <!-- The surface in the template that the scan was carried out with respect to. -->
+  <xsl:param name="ptHz"/>
+  <xsl:param name="ptVt"/>
+
+  <xsl:variable name="templateElementIndexVar">
+    <xsl:call-template name="TemplateElementForPoint">
+      <xsl:with-param name="designTemplate" select="$designTemplate"/>
+      <xsl:with-param name="templateSurface" select="$templateSurface"/>
+      <xsl:with-param name="ptHz" select="$ptHz"/>
+      <xsl:with-param name="ptVt" select="$ptVt"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="templateElementIndex" select="msxsl:node-set($templateElementIndexVar)/index"/>
+  <xsl:choose>
+    <xsl:when test="string(number($templateElementIndex)) != 'NaN'">
+      <xsl:variable name="distToStartOfElement">  <!-- The sum of the lengths of the template elements preceding this element -->
+        <xsl:call-template name="TemplateDistPriorToIndex">
+          <xsl:with-param name="index" select="$templateElementIndex"/>
+          <xsl:with-param name="designTemplate" select="$designTemplate"/>
+          <xsl:with-param name="templateSurface" select="$templateSurface"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="distAlongElement">  <!-- The distance along this element -->
+        <xsl:call-template name="TemplateDistAlongElement">
+          <xsl:with-param name="element" select="msxsl:node-set($designTemplate)/templateSurface[@name = $templateSurface]/element[number($templateElementIndex)]"/>
+          <xsl:with-param name="ptHz" select="$ptHz"/>
+          <xsl:with-param name="ptVt" select="$ptVt"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:element name="distAround">
+        <xsl:value-of select="$distToStartOfElement + $distAlongElement"/> <!-- Return computed distance -->
+      </xsl:element>
+
+      <xsl:element name="calcdDelta">
+        <xsl:value-of select="msxsl:node-set($templateElementIndexVar)/delta"/> <!-- Return computed delta value -->
+      </xsl:element>
+    </xsl:when>
+    <xsl:otherwise>0</xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ****** Return index of template element adjacent to point ****** -->
+<!-- **************************************************************** -->
+<xsl:template name="TemplateElementForPoint">
+  <xsl:param name="designTemplate"/>
+  <xsl:param name="templateSurface"/>  <!-- The surface in the template that the scan was carried out with respect to. -->
+  <xsl:param name="ptHz"/>
+  <xsl:param name="ptVt"/>
+
+  <xsl:variable name="distToElement">  <!-- A node set holding the shortest distance from point to each template element -->
+    <xsl:for-each select="msxsl:node-set($designTemplate)/templateSurface[@name = $templateSurface]/element">
+      <xsl:variable name="distToStartPt">
+        <xsl:call-template name="InverseDistance">
+          <xsl:with-param name="deltaN" select="startVt - $ptVt"/>
+          <xsl:with-param name="deltaE" select="startHz - $ptHz"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="distToEndPt">
+        <xsl:call-template name="InverseDistance">
+          <xsl:with-param name="deltaN" select="endVt - $ptVt"/>
+          <xsl:with-param name="deltaE" select="endHz - $ptHz"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="shortestDist">
+        <xsl:choose>
+          <xsl:when test="$distToStartPt &lt; $distToEndPt">
+            <xsl:value-of select="$distToStartPt"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="$distToEndPt"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+
+      <xsl:choose>
+        <xsl:when test="math:abs(number($shortestDist)) &lt; 0.0001">
+          <!-- Position is essentially at one of end points so we have a position on the template -->
+          <xsl:element name="element">
+            <xsl:element name="distance">
+              <xsl:value-of select="$shortestDist"/>
+            </xsl:element>
+            <xsl:element name="index">
+              <xsl:value-of select="position()"/>
+            </xsl:element>
+          </xsl:element>
+        </xsl:when>
+
+        <xsl:otherwise>
+          <!-- Need to determine if the point will project onto the template element -->
+          <xsl:variable name="startToPtDir">
+            <xsl:call-template name="InverseAzimuth">
+              <xsl:with-param name="deltaN" select="$ptVt - startVt"/>
+              <xsl:with-param name="deltaE" select="$ptHz - startHz"/>
+              <xsl:with-param name="returnInRadians">true</xsl:with-param>
+            </xsl:call-template>
+          </xsl:variable>
+
+          <xsl:variable name="endToPtDir">
+            <xsl:call-template name="InverseAzimuth">
+              <xsl:with-param name="deltaN" select="$ptVt - endVt"/>
+              <xsl:with-param name="deltaE" select="$ptHz - endHz"/>
+              <xsl:with-param name="returnInRadians">true</xsl:with-param>
+            </xsl:call-template>
+          </xsl:variable>
+
+          <xsl:variable name="centreToPtDir">
+            <xsl:call-template name="InverseAzimuth">
+              <xsl:with-param name="deltaN" select="$ptVt - centreVt"/>
+              <xsl:with-param name="deltaE" select="$ptHz - centreHz"/>
+              <xsl:with-param name="returnInRadians">true</xsl:with-param>
+            </xsl:call-template>
+          </xsl:variable>
+
+          <xsl:variable name="startDir">
+            <xsl:choose>
+              <xsl:when test="radius">  <!-- Arc element -->
+                <xsl:call-template name="InverseAzimuth">
+                  <xsl:with-param name="deltaN" select="startVt - centreVt"/>
+                  <xsl:with-param name="deltaE" select="startHz - centreHz"/>
+                  <xsl:with-param name="returnInRadians">true</xsl:with-param>
+                </xsl:call-template>
+              </xsl:when>
+              <xsl:otherwise>  <!-- Line element -->
+                <xsl:call-template name="InverseAzimuth">
+                  <xsl:with-param name="deltaN" select="endVt - startVt"/>
+                  <xsl:with-param name="deltaE" select="endHz - startHz"/>
+                  <xsl:with-param name="returnInRadians">true</xsl:with-param>
+                </xsl:call-template>
+              </xsl:otherwise>
+            </xsl:choose>
+          </xsl:variable>
+
+          <xsl:variable name="endDir">
+            <xsl:choose>
+              <xsl:when test="radius">  <!-- Arc element -->
+                <xsl:call-template name="InverseAzimuth">
+                  <xsl:with-param name="deltaN" select="endVt - centreVt"/>
+                  <xsl:with-param name="deltaE" select="endHz - centreHz"/>
+                  <xsl:with-param name="returnInRadians">true</xsl:with-param>
+                </xsl:call-template>
+              </xsl:when>
+              <xsl:otherwise>  <!-- Line element -->
+                <xsl:call-template name="InverseAzimuth">
+                  <xsl:with-param name="deltaN" select="endVt - startVt"/>
+                  <xsl:with-param name="deltaE" select="endHz - startHz"/>
+                  <xsl:with-param name="returnInRadians">true</xsl:with-param>
+                </xsl:call-template>
+              </xsl:otherwise>
+            </xsl:choose>
+          </xsl:variable>
+
+          <xsl:variable name="arcAngle">
+            <xsl:call-template name="RadiansClockwiseAngle">
+              <xsl:with-param name="fromDir" select="$startDir"/>
+              <xsl:with-param name="toDir" select="$endDir"/>
+            </xsl:call-template>
+          </xsl:variable>
+
+          <xsl:variable name="arcPointAngle">
+            <xsl:call-template name="RadiansClockwiseAngle">
+              <xsl:with-param name="fromDir" select="$startDir"/>
+              <xsl:with-param name="toDir" select="$centreToPtDir"/>
+            </xsl:call-template>
+          </xsl:variable>
+
+          <xsl:variable name="deltaToStartDir">
+            <xsl:call-template name="NormalisedAngleBetweenPlusMinusPi">
+              <xsl:with-param name="inAngle" select="$startDir - $startToPtDir"/>
+            </xsl:call-template>
+          </xsl:variable>
+          <xsl:variable name="absDeltaToStartDir" select="math:abs(number($deltaToStartDir))"/>
+
+          <xsl:variable name="deltaToEndDir">
+            <xsl:call-template name="NormalisedAngleBetweenPlusMinusPi">
+              <xsl:with-param name="inAngle" select="$endDir - $endToPtDir"/>
+            </xsl:call-template>
+          </xsl:variable>
+          <xsl:variable name="absDeltaToEndDir" select="math:abs(number($deltaToEndDir))"/>
+
+          <xsl:choose>
+            <xsl:when test="(not(radius) and ($absDeltaToStartDir &lt;= $halfPi) and ($absDeltaToEndDir &gt;= $halfPi)) or
+                            (radius and ($arcPointAngle &lt;= $arcAngle))">
+              <xsl:element name="element">
+                <xsl:choose>
+                  <xsl:when test="radius">  <!-- Arc element - the distance to the arc will be the difference between the radius and the distance from the centre point to the point -->
+                    <xsl:variable name="distCentreToPt">
+                      <xsl:call-template name="InverseDistance">
+                        <xsl:with-param name="deltaN" select="centreVt - $ptVt"/>
+                        <xsl:with-param name="deltaE" select="centreHz - $ptHz"/>
+                      </xsl:call-template>
+                    </xsl:variable>
+                    <xsl:element name="distance">
+                      <xsl:value-of select="math:abs(number($distCentreToPt - radius))"/>
+                    </xsl:element>
+                    <xsl:element name="deltaDist">  <!-- Retain the signed calculated delta value -->
+                      <xsl:value-of select="number($distCentreToPt - radius)"/>
+                    </xsl:element>
+                  </xsl:when>
+                  <xsl:otherwise>
+                    <xsl:element name="distance">
+                      <xsl:value-of select="math:sin(number($absDeltaToStartDir)) * $distToStartPt"/>
+                    </xsl:element>
+                    <xsl:element name="deltaDist">  <!-- Retain the signed calculated delta value -->
+                      <xsl:value-of select="math:sin(number($deltaToStartDir)) * $distToStartPt"/>
+                    </xsl:element>
+                  </xsl:otherwise>
+                </xsl:choose>
+                <xsl:element name="index">
+                  <xsl:value-of select="position()"/>
+                </xsl:element>
+              </xsl:element>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:element name="element">
+                <xsl:element name="distance">
+                  <xsl:value-of select="$shortestDist"/>
+                </xsl:element>
+                <xsl:element name="deltaDist">  <!-- Retain the calculated delta value (will always be +ve in this situation) -->
+                  <xsl:value-of select="$shortestDist"/>
+                </xsl:element>
+                <xsl:element name="index">
+                  <xsl:value-of select="position()"/>
+                </xsl:element>
+              </xsl:element>
+            </xsl:otherwise>
+          </xsl:choose>
+
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:if test="count(msxsl:node-set($distToElement)/element) != 0">
+    <xsl:variable name="sortedDists">
+      <xsl:for-each select="msxsl:node-set($distToElement)/element">
+        <xsl:sort order="ascending" data-type="number" select="distance"/>
+        <xsl:copy-of select="."/>
+      </xsl:for-each>
+    </xsl:variable>
+
+    <xsl:element name="index">
+      <xsl:value-of select="msxsl:node-set($sortedDists)/element[1]/index"/>  <!-- Return the element index -->
+    </xsl:element>
+
+    <xsl:element name="delta">
+      <xsl:value-of select="msxsl:node-set($sortedDists)/element[1]/deltaDist"/>
+    </xsl:element>
+
+    <xsl:element name="extCornerPt">
+      <xsl:variable name="shortestDist" select="msxsl:node-set($sortedDists)/element[1]/distance"/>
+      <xsl:choose>
+        <xsl:when test="count(msxsl:node-set($sortedDists)/element[distance = $shortestDist]) &gt; 1">true</xsl:when>
+        <xsl:otherwise>false</xsl:otherwise>
+      </xsl:choose>
+    </xsl:element>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Return the arc centre point and delta angle ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="CalcArcCentrePointAndDeltaAngle">
+  <xsl:param name="startHz"/>
+  <xsl:param name="startVt"/>
+  <xsl:param name="endHz"/>
+  <xsl:param name="endVt"/>
+  <xsl:param name="radius"/>
+  <xsl:param name="largeArc"/>
+
+  <xsl:variable name="chordLen">
+    <xsl:call-template name="InverseDistance">
+      <xsl:with-param name="deltaN" select="$endVt - $startVt"/>
+      <xsl:with-param name="deltaE" select="$endHz - $startHz"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:if test="($radius != 0.0) and ($chordLen != 0.0) and ($radius &gt;= $chordLen div 2.0)">
+    <xsl:variable name="scribedAngle">  <!-- Cosine rule -->
+      <xsl:value-of select="math:acos(number(($radius * $radius + $radius * $radius - $chordLen * $chordLen) div (2.0 * $radius * $radius)))"/>
+    </xsl:variable>
+
+    <xsl:element name="deltaAngle">  <!-- Degree value -->
+      <xsl:choose>
+        <xsl:when test="$largeArc = 'true'">
+          <xsl:value-of select="(math:PI() * 2.0 - $scribedAngle) * 180.0 div math:PI()"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$scribedAngle * 180.0 div math:PI()"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:element>
+
+    <xsl:variable name="chordDir">
+      <xsl:call-template name="InverseAzimuth">
+        <xsl:with-param name="deltaN" select="$endVt - $startVt"/>
+        <xsl:with-param name="deltaE" select="$endHz - $startHz"/>
+        <xsl:with-param name="returnInRadians">true</xsl:with-param>
+      </xsl:call-template>
+    </xsl:variable>
+
+    <xsl:variable name="internalAngle" select="(math:PI() - $scribedAngle) div 2.0"/>
+
+    <xsl:variable name="centreDir">
+      <xsl:call-template name="NormalisedAngle">
+        <xsl:with-param name="angle">
+          <xsl:choose>
+            <xsl:when test="$largeArc = 'true'">
+              <xsl:value-of select="$chordDir - $internalAngle"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="$chordDir + $internalAngle"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:with-param>
+      </xsl:call-template>
+    </xsl:variable>
+
+    <xsl:call-template name="FollowDirection">
+      <xsl:with-param name="direction" select="$centreDir"/>
+      <xsl:with-param name="distance" select="$radius"/>
+      <xsl:with-param name="startVt" select="$startVt"/>
+      <xsl:with-param name="startHz" select="$startHz"/>
+    </xsl:call-template>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******* Compute end point for arc defined by delta angle ******* -->
+<!-- **************************************************************** -->
+<xsl:template name="CalcArcEndPoint">
+  <xsl:param name="radius"/>
+  <xsl:param name="deltaAngle"/>
+  <xsl:param name="startHz"/>
+  <xsl:param name="startVt"/>
+  <xsl:param name="centreHz"/>
+  <xsl:param name="centreVt"/>
+
+  <xsl:variable name="dirnToStart">
+    <xsl:call-template name="InverseAzimuth">
+      <xsl:with-param name="deltaN" select="$startVt - $centreVt"/>
+      <xsl:with-param name="deltaE" select="$startHz - $centreHz"/>
+      <xsl:with-param name="returnInRadians">true</xsl:with-param>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="dirnToEnd">
+    <xsl:call-template name="RadianAngleBetweenLimits">
+      <xsl:with-param name="anAngle" select="$dirnToStart + $deltaAngle * math:PI() div 180.0"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:call-template name="FollowDirection">
+    <xsl:with-param name="direction" select="$dirnToEnd"/>
+    <xsl:with-param name="distance" select="$radius"/>
+    <xsl:with-param name="startVt" select="$centreVt"/>
+    <xsl:with-param name="startHz" select="$centreHz"/>
+  </xsl:call-template>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *************** Compute rotated point coordinates ************** -->
+<!-- **************************************************************** -->
+<xsl:template name="ComputeRotatedPoint">
+  <xsl:param name="rotationAngle"/>
+  <xsl:param name="hzOrigin"/>
+  <xsl:param name="vtOrigin"/>
+  <xsl:param name="hzOffset"/>
+  <xsl:param name="vtOffset"/>
+
+  <!-- First need to translate the point such that the rotation origin is at 0,0 -->
+  <xsl:variable name="transHzOffset" select="$hzOffset - $hzOrigin"/>
+  <xsl:variable name="transVtOffset" select="$vtOffset - $vtOrigin"/>
+  
+  <!-- Now apply the rotation to the translated point -->
+  <xsl:variable name="rotHzOffset" select="$transHzOffset * math:cos(number($rotationAngle)) - $transVtOffset * math:sin(number($rotationAngle))"/>
+  <xsl:variable name="rotVtOffset" select="$transHzOffset * math:sin(number($rotationAngle)) + $transVtOffset * math:cos(number($rotationAngle))"/>
+
+  <!-- Now translate the rotated point back into the original terms and return in horizOffset and vertOffset elements -->
+  <xsl:element name="horizOffset">
+    <xsl:value-of select="$rotHzOffset + $hzOrigin"/>
+  </xsl:element>
+
+  <xsl:element name="vertOffset">
+    <xsl:value-of select="$rotVtOffset + $vtOrigin"/>
+  </xsl:element>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Returns whether this is an underbreak point ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="IsUnderBreakPoint">
+  <xsl:param name="underbreakTol"/>
+  <xsl:param name="delta"/>
+
+  <xsl:choose>
+    <xsl:when test="$delta &lt; 0">
+      <xsl:variable name="absDelta" select="math:abs(number($delta))"/>
+      <xsl:choose>
+        <xsl:when test="$absDelta &gt; $underbreakTol">
+          <xsl:value-of select="'true'"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="'false'"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="'false'"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Returns whether this is an overbreak point ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="IsOverBreakPoint">
+  <xsl:param name="overbreakTol"/>
+  <xsl:param name="delta"/>
+
+  <xsl:choose>
+    <xsl:when test="$delta &gt; 0">
+      <xsl:choose>
+        <xsl:when test="$delta &gt; $overbreakTol">
+          <xsl:value-of select="'true'"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="'false'"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="'false'"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ** Returns whether this point is outside the station tolerance * -->
+<!-- **************************************************************** -->
+<xsl:template name="IsOutsideStnTolPoint">
+  <xsl:param name="stnTol"/>
+
+  <xsl:variable name="absStnDelta" select="math:abs(number(DeltaStation))"/>
+  <xsl:choose>
+    <xsl:when test="$absStnDelta &gt; $stnTol">
+      <xsl:value-of select="'true'"/>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="'false'"/>
+    </xsl:otherwise>
+  </xsl:choose>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************ Return a node set of grid step values ************* -->
+<!-- **************************************************************** -->
+<xsl:template name="GridSteps">
+  <xsl:param name="fromVal"/>
+  <xsl:param name="toVal"/>
+  <xsl:param name="increment" select="1"/>
+  <xsl:param name="first" select="'true'"/>
+
+  <xsl:if test="$first = 'true'">
+    <xsl:element name="value">
+      <xsl:value-of select="$fromVal"/>
+    </xsl:element>
+  </xsl:if>
+
+  <xsl:if test="math:abs(number($fromVal + $increment)) &lt;= math:abs(number($toVal))">
+    <xsl:element name="value">
+      <xsl:value-of select="$fromVal + $increment"/>
+    </xsl:element>
+    <xsl:call-template name="GridSteps">   <!-- Recurse the function -->
+      <xsl:with-param name="fromVal" select="$fromVal + $increment"/>
+      <xsl:with-param name="toVal" select="$toVal"/>
+      <xsl:with-param name="increment" select="$increment"/>
+      <xsl:with-param name="first" select="'false'"/>
+    </xsl:call-template>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************ Return a node set of grid step values ************* -->
+<!-- **************************************************************** -->
+<xsl:template name="GridStepIncrement">
+  <xsl:param name="nbrGridSteps"/>
+  <xsl:param name="maxGridSteps"/>
+  <xsl:param name="increment" select="1"/>
+
+  <xsl:choose>
+    <xsl:when test="$nbrGridSteps div $increment &gt; $maxGridSteps">
+      <xsl:call-template name="GridStepIncrement">
+        <xsl:with-param name="nbrGridSteps" select="$nbrGridSteps"/>
+        <xsl:with-param name="maxGridSteps" select="$maxGridSteps"/>
+        <xsl:with-param name="increment" select="$increment + 1"/>
+      </xsl:call-template>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="$increment"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Apply the rotation to the template elements ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="ComputeRotatedTemplate">
+  <xsl:param name="unrotatedTemplate"/>
+  <xsl:param name="templateRotationVals"/>
+
+  <!-- Compute and return the rotated coordinates for all the points in $unrotatedTemplate -->
+  <xsl:for-each select="msxsl:node-set($unrotatedTemplate)/templateSurface">
+    <xsl:element name="templateSurface">
+      <xsl:attribute name="name">
+        <xsl:value-of select="@name"/>
+      </xsl:attribute>
+      <xsl:for-each select="element">
+        <xsl:element name="element">
+          <!-- Rotate the start point -->
+          <xsl:variable name="startPt">
+            <xsl:call-template name="ComputeRotatedPoint">
+              <xsl:with-param name="rotationAngle" select="msxsl:node-set($templateRotationVals)/rotationAngle"/>
+              <xsl:with-param name="hzOrigin" select="msxsl:node-set($templateRotationVals)/hzOrigin"/>
+              <xsl:with-param name="vtOrigin" select="msxsl:node-set($templateRotationVals)/vtOrigin"/>
+              <xsl:with-param name="hzOffset" select="startHz"/>
+              <xsl:with-param name="vtOffset" select="startVt"/>
+            </xsl:call-template>
+          </xsl:variable>
+
+          <!-- Add rotated start point elements -->
+          <xsl:element name="startHz">
+            <xsl:value-of select="msxsl:node-set($startPt)/horizOffset"/>
+          </xsl:element>
+
+          <xsl:element name="startVt">
+            <xsl:value-of select="msxsl:node-set($startPt)/vertOffset"/>
+          </xsl:element>
+
+          <!-- Rotate the end point -->
+          <xsl:variable name="endPt">
+            <xsl:call-template name="ComputeRotatedPoint">
+              <xsl:with-param name="rotationAngle" select="msxsl:node-set($templateRotationVals)/rotationAngle"/>
+              <xsl:with-param name="hzOrigin" select="msxsl:node-set($templateRotationVals)/hzOrigin"/>
+              <xsl:with-param name="vtOrigin" select="msxsl:node-set($templateRotationVals)/vtOrigin"/>
+              <xsl:with-param name="hzOffset" select="endHz"/>
+              <xsl:with-param name="vtOffset" select="endVt"/>
+            </xsl:call-template>
+          </xsl:variable>
+
+          <xsl:element name="endHz">
+            <xsl:value-of select="msxsl:node-set($endPt)/horizOffset"/>
+          </xsl:element>
+
+          <xsl:element name="endVt">
+            <xsl:value-of select="msxsl:node-set($endPt)/vertOffset"/>
+          </xsl:element>
+
+          <xsl:copy-of select="radius"/>
+          <xsl:copy-of select="largeArc"/>
+          <xsl:copy-of select="deltaAngle"/>
+
+          <xsl:if test="centreHz">
+            <!-- There is a centre point defined so rotate it -->
+            <xsl:variable name="centrePt">
+              <xsl:call-template name="ComputeRotatedPoint">
+                <xsl:with-param name="rotationAngle" select="msxsl:node-set($templateRotationVals)/rotationAngle"/>
+                <xsl:with-param name="hzOrigin" select="msxsl:node-set($templateRotationVals)/hzOrigin"/>
+                <xsl:with-param name="vtOrigin" select="msxsl:node-set($templateRotationVals)/vtOrigin"/>
+                <xsl:with-param name="hzOffset" select="centreHz"/>
+                <xsl:with-param name="vtOffset" select="centreVt"/>
+              </xsl:call-template>
+            </xsl:variable>
+
+            <xsl:element name="centreHz">
+              <xsl:value-of select="msxsl:node-set($centrePt)/horizOffset"/>
+            </xsl:element>
+
+            <xsl:element name="centreVt">
+              <xsl:value-of select="msxsl:node-set($centrePt)/vertOffset"/>
+            </xsl:element>
+          </xsl:if>
+
+          <xsl:copy-of select="code"/>
+        </xsl:element>   <!-- element -->
+      </xsl:for-each>
+    </xsl:element>     <!-- templateSurface -->
+  </xsl:for-each>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ***** Apply the alignment offsets to the template elements ***** -->
+<!-- **************************************************************** -->
+<xsl:template name="ApplyAlignmentOffsets">
+  <xsl:param name="template"/>
+  <xsl:param name="templateOffsetVals"/>
+
+  <!-- Apply the alignment offsets to each point in $template -->
+  <xsl:for-each select="msxsl:node-set($template)/templateSurface">
+    <xsl:element name="templateSurface">
+      <xsl:attribute name="name">
+        <xsl:value-of select="@name"/>
+      </xsl:attribute>
+      <xsl:for-each select="element">
+        <xsl:element name="element">
+          <xsl:element name="startHz">
+            <xsl:value-of select="startHz + msxsl:node-set($templateOffsetVals)/hzOffset"/>
+          </xsl:element>
+
+          <xsl:element name="startVt">
+            <xsl:value-of select="startVt + msxsl:node-set($templateOffsetVals)/vtOffset"/>
+          </xsl:element>
+
+          <xsl:element name="endHz">
+            <xsl:value-of select="endHz + msxsl:node-set($templateOffsetVals)/hzOffset"/>
+          </xsl:element>
+
+          <xsl:element name="endVt">
+            <xsl:value-of select="endVt + msxsl:node-set($templateOffsetVals)/vtOffset"/>
+          </xsl:element>
+
+          <xsl:copy-of select="radius"/>
+          <xsl:copy-of select="largeArc"/>
+          <xsl:copy-of select="deltaAngle"/>
+          <xsl:copy-of select="length"/>
+
+          <xsl:if test="centreHz">
+            <xsl:element name="centreHz">
+              <xsl:value-of select="centreHz + msxsl:node-set($templateOffsetVals)/hzOffset"/>
+            </xsl:element>
+
+            <xsl:element name="centreVt">
+              <xsl:value-of select="centreVt + msxsl:node-set($templateOffsetVals)/vtOffset"/>
+            </xsl:element>
+          </xsl:if>
+
+          <xsl:copy-of select="code"/>
+        </xsl:element>  <!-- element -->
+      </xsl:for-each>
+    </xsl:element>      <!-- templateSurface -->
+  </xsl:for-each>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- **** Return sum of template element lengths prior to index ***** -->
+<!-- **************************************************************** -->
+<xsl:template name="TemplateDistPriorToIndex">
+  <xsl:param name="index"/>
+  <xsl:param name="designTemplate"/>
+  <xsl:param name="templateSurface"/>
+
+  <xsl:choose>
+    <xsl:when test="$index - 1 &gt; 0">
+      <xsl:variable name="lengths">
+        <xsl:for-each select="msxsl:node-set($designTemplate)/templateSurface[@name = $templateSurface]/element[position() &lt; $index]">
+          <xsl:element name="length">
+            <xsl:value-of select="length"/>
+          </xsl:element>
+        </xsl:for-each>
+      </xsl:variable>
+
+      <xsl:value-of select="sum(msxsl:node-set($lengths)/length)"/>  <!-- Return sum of the element lengths -->
+    </xsl:when>
+    <xsl:otherwise>0</xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******** Return the distance along the template element ******** -->
+<!-- **************************************************************** -->
+<xsl:template name="TemplateDistAlongElement">
+  <xsl:param name="element"/>
+  <xsl:param name="ptHz"/>
+  <xsl:param name="ptVt"/>
+
+  <xsl:choose>
+    <xsl:when test="msxsl:node-set($element)/radius">  <!-- Arc element -->
+      <xsl:variable name="centreTostartPtDir">
+        <xsl:call-template name="InverseAzimuth">
+          <xsl:with-param name="deltaN" select="msxsl:node-set($element)/startVt - msxsl:node-set($element)/centreVt"/>
+          <xsl:with-param name="deltaE" select="msxsl:node-set($element)/startHz - msxsl:node-set($element)/centreHz"/>
+          <xsl:with-param name="returnInRadians">true</xsl:with-param>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="centreToPtDir">
+        <xsl:call-template name="InverseAzimuth">
+          <xsl:with-param name="deltaN" select="$ptVt - msxsl:node-set($element)/centreVt"/>
+          <xsl:with-param name="deltaE" select="$ptHz - msxsl:node-set($element)/centreHz"/>
+          <xsl:with-param name="returnInRadians">true</xsl:with-param>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="angleToPt">
+        <xsl:call-template name="RadiansClockwiseAngle">
+          <xsl:with-param name="fromDir" select="$centreTostartPtDir"/>
+          <xsl:with-param name="toDir" select="$centreToPtDir"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:value-of select="$angleToPt * msxsl:node-set($element)/radius"/>  <!-- Return arc length for given angle -->
+    </xsl:when>
+
+    <xsl:otherwise>  <!-- Line element -->
+      <xsl:variable name="lineDir">
+        <xsl:call-template name="InverseAzimuth">
+          <xsl:with-param name="deltaN" select="msxsl:node-set($element)/endVt - msxsl:node-set($element)/startVt"/>
+          <xsl:with-param name="deltaE" select="msxsl:node-set($element)/endHz - msxsl:node-set($element)/startHz"/>
+          <xsl:with-param name="returnInRadians">true</xsl:with-param>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="lineLen">
+        <xsl:call-template name="InverseDistance">
+          <xsl:with-param name="deltaN" select="msxsl:node-set($element)/endVt - msxsl:node-set($element)/startVt"/>
+          <xsl:with-param name="deltaE" select="msxsl:node-set($element)/endHz - msxsl:node-set($element)/startHz"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="startToPtDir">
+        <xsl:call-template name="InverseAzimuth">
+          <xsl:with-param name="deltaN" select="$ptVt - msxsl:node-set($element)/startVt"/>
+          <xsl:with-param name="deltaE" select="$ptHz - msxsl:node-set($element)/startHz"/>
+          <xsl:with-param name="returnInRadians">true</xsl:with-param>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="distFromStartPt">
+        <xsl:call-template name="InverseDistance">
+          <xsl:with-param name="deltaN" select="$ptVt - msxsl:node-set($element)/startVt"/>
+          <xsl:with-param name="deltaE" select="$ptHz - msxsl:node-set($element)/startHz"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="deltaAngle" select="$startToPtDir - $lineDir"/>
+
+      <xsl:variable name="calcDist" select="math:cos(number($deltaAngle)) * $distFromStartPt"/> <!-- Return projected distance onto line -->
+
+      <xsl:choose>
+        <xsl:when test="$calcDist &lt; $lineLen">
+          <xsl:value-of select="$calcDist"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$lineLen"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******** Recursive function to add the template elements ******* -->
+<!-- **************************************************************** -->
+<xsl:template name="AddTemplateElements">
+  <xsl:param name="templateDeltas"/>
+  <xsl:param name="startHz"/>
+  <xsl:param name="startVt"/>
+  <xsl:param name="count" select="1"/>
+
+  <!-- The template elements node set has the following structure       -->
+  <!--   <element>                                                      -->
+  <!--      <startHz>                                                   -->
+  <!--      <startVt>                                                   -->
+  <!--      <endHz>                                                     -->
+  <!--      <endVt>                                                     -->
+  <!--      <radius>     optional - indicates arc element               -->
+  <!--      <largeArc>   optional - only on an arc element (true/false) -->
+  <!--      <deltaAngle> optional - only on some arc elements           -->
+  <!--      <centreHz>   optional - only on an arc element              -->
+  <!--      <centreVt>   optional - only on an arc element              -->
+  <!--      <code>                                                      -->
+  <!--   </element>                                                     -->
+
+  <xsl:if test="$count &lt;= count(msxsl:node-set($templateDeltas)/delta)">
+    <xsl:variable name="deltaHz" select="msxsl:node-set($templateDeltas)/delta[position() = $count]/hz"/>
+    <xsl:variable name="deltaVt" select="msxsl:node-set($templateDeltas)/delta[position() = $count]/vt"/>
+    <xsl:variable name="endHz" select="msxsl:node-set($templateDeltas)/delta[position() = $count]/endHz"/>
+    <xsl:variable name="endVt" select="msxsl:node-set($templateDeltas)/delta[position() = $count]/endVt"/>
+    <xsl:variable name="radius" select="msxsl:node-set($templateDeltas)/delta[position() = $count]/radius"/>
+    <xsl:variable name="largeArc" select="msxsl:node-set($templateDeltas)/delta[position() = $count]/largeArc"/>
+    <xsl:variable name="centreHz" select="msxsl:node-set($templateDeltas)/delta[position() = $count]/centreHz"/>
+    <xsl:variable name="centreVt" select="msxsl:node-set($templateDeltas)/delta[position() = $count]/centreVt"/>
+    <xsl:variable name="deltaAngle" select="msxsl:node-set($templateDeltas)/delta[position() = $count]/deltaAngle"/>
+    <xsl:variable name="code" select="msxsl:node-set($templateDeltas)/delta[position() = $count]/Code"/>
+
+    <xsl:variable name="radiusVal">
+      <xsl:choose>
+        <xsl:when test="string(number($radius)) != 'NaN'">
+          <xsl:value-of select="$radius"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:if test="(string(number($centreHz)) != 'NaN') and (string(number($centreVt)) != 'NaN') and
+                        (string(number($deltaAngle)) != 'NaN')">
+            <xsl:value-of select="math:sqrt(number(($startHz - $centreHz) * ($startHz - $centreHz) + ($startVt - $centreVt) * ($startVt - $centreVt)))"/>
+          </xsl:if>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+
+    <xsl:variable name="arcEndPt">
+      <xsl:if test="(string(number($centreHz)) != 'NaN') and (string(number($centreVt)) != 'NaN') and
+                    (string(number($deltaAngle)) != 'NaN')">
+        <xsl:call-template name="CalcArcEndPoint">
+          <xsl:with-param name="radius" select="$radiusVal"/>
+          <xsl:with-param name="deltaAngle" select="$deltaAngle"/>
+          <xsl:with-param name="startHz" select="$startHz"/>
+          <xsl:with-param name="startVt" select="$startVt"/>
+          <xsl:with-param name="centreHz" select="$centreHz"/>
+          <xsl:with-param name="centreVt" select="$centreVt"/>
+        </xsl:call-template>
+      </xsl:if>
+    </xsl:variable>
+
+    <xsl:variable name="elementEndHz">
+      <xsl:choose>
+        <xsl:when test="string(number($endHz)) != 'NaN'">  <!-- Already directly have the end position -->
+          <xsl:value-of select="$endHz"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:choose>
+            <xsl:when test="string(number($deltaHz)) != 'NaN'">  <!-- There is a deltaHz value -->
+              <xsl:value-of select="$startHz + $deltaHz"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="msxsl:node-set($arcEndPt)/horizOffset"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+
+    <xsl:variable name="elementEndVt">
+      <xsl:choose>
+        <xsl:when test="string(number($endVt)) != 'NaN'">  <!-- Already directly have the end position -->
+          <xsl:value-of select="$endVt"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:choose>
+            <xsl:when test="string(number($deltaVt)) != 'NaN'">  <!-- There is a deltaVt value -->
+              <xsl:value-of select="$startVt + $deltaVt"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="msxsl:node-set($arcEndPt)/vertOffset"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+
+    <xsl:element name="element">
+      <xsl:element name="startHz">
+        <xsl:value-of select="$startHz"/>
+      </xsl:element>
+
+      <xsl:element name="startVt">
+        <xsl:value-of select="$startVt"/>
+      </xsl:element>
+
+      <xsl:element name="endHz">
+        <xsl:value-of select="$elementEndHz"/>
+      </xsl:element>
+
+      <xsl:element name="endVt">
+        <xsl:value-of select="$elementEndVt"/>
+      </xsl:element>
+
+      <xsl:if test="string(number($radiusVal)) != 'NaN'">
+        <xsl:element name="radius">
+          <xsl:value-of select="$radiusVal"/>
+        </xsl:element>
+      </xsl:if>
+
+      <xsl:if test="$largeArc != ''">
+        <xsl:element name="largeArc">
+          <xsl:value-of select="$largeArc"/>
+        </xsl:element>
+      </xsl:if>
+
+      <xsl:if test="string(number($deltaAngle)) != 'NaN'">
+        <xsl:element name="largeArc">
+          <xsl:choose>
+            <xsl:when test="$deltaAngle &gt; 180.0">true</xsl:when>
+            <xsl:otherwise>false</xsl:otherwise>
+          </xsl:choose>
+        </xsl:element>
+      </xsl:if>
+
+      <xsl:if test="string(number($deltaAngle)) != 'NaN'">
+        <xsl:element name="deltaAngle">
+          <xsl:value-of select="$deltaAngle"/>
+        </xsl:element>
+      </xsl:if>
+
+      <xsl:if test="string(number($centreHz)) != 'NaN'">
+        <xsl:element name="centreHz">
+          <xsl:value-of select="$centreHz"/>
+        </xsl:element>
+      </xsl:if>
+
+      <xsl:if test="string(number($centreVt)) != 'NaN'">
+        <xsl:element name="centreVt">
+          <xsl:value-of select="$centreVt"/>
+        </xsl:element>
+      </xsl:if>
+
+      <xsl:if test="(string(number($radiusVal)) != 'NaN') and (string(number($centreHz)) = 'NaN')">
+        <!-- We have the radius but no centre point - compute the centre point -->
+        <xsl:variable name="centrePt">
+          <xsl:call-template name="CalcArcCentrePointAndDeltaAngle">
+            <xsl:with-param name="radius" select="$radiusVal"/>
+            <xsl:with-param name="startHz" select="$startHz"/>
+            <xsl:with-param name="startVt" select="$startVt"/>
+            <xsl:with-param name="endHz" select="$endHz"/>
+            <xsl:with-param name="endVt" select="$endVt"/>
+            <xsl:with-param name="largeArc" select="$largeArc"/>
+          </xsl:call-template>
+        </xsl:variable>
+        <xsl:element name="centreHz">
+          <xsl:value-of select="msxsl:node-set($centrePt)/horizOffset"/>
+        </xsl:element>
+        <xsl:element name="centreVt">
+          <xsl:value-of select="msxsl:node-set($centrePt)/vertOffset"/>
+        </xsl:element>
+        <xsl:if test="string(number($deltaAngle)) = 'NaN'">
+          <xsl:element name="deltaAngle">
+            <xsl:value-of select="msxsl:node-set($centrePt)/deltaAngle"/>
+          </xsl:element>
+        </xsl:if>
+        <xsl:element name="length">
+          <xsl:value-of select="msxsl:node-set($centrePt)/deltaAngle * math:PI() div 180.0 * $radiusVal"/>
+        </xsl:element>
+      </xsl:if>
+
+      <xsl:if test="(string(number($radiusVal)) != 'NaN') and (string(number($deltaAngle)) != 'NaN')and (string(number($centreHz)) != 'NaN')">
+        <!-- Have a radius and a delta angle and the length has not been added   -->
+        <!-- when the centre point was computed so compute the length of the arc -->
+        <xsl:element name="length">
+          <xsl:value-of select="$deltaAngle * math:PI() div 180.0 * $radiusVal"/>
+        </xsl:element>
+      </xsl:if>
+
+      <xsl:if test="string(number($radiusVal)) = 'NaN'">  <!-- No radius - must be a line element -->
+        <xsl:element name="length">
+          <xsl:call-template name="InverseDistance">
+            <xsl:with-param name="deltaN" select="$startVt - $elementEndVt"/>
+            <xsl:with-param name="deltaE" select="$startHz - $elementEndHz"/>
+          </xsl:call-template>
+        </xsl:element>
+      </xsl:if>
+
+      <xsl:element name="code">
+        <xsl:value-of select="$code"/>
+      </xsl:element>
+    </xsl:element>
+
+    <!-- Recurse the function to build all the design template elements -->
+    <xsl:call-template name="AddTemplateElements">
+      <xsl:with-param name="templateDeltas" select="$templateDeltas"/>
+      <xsl:with-param name="startHz" select="$elementEndHz"/>
+      <xsl:with-param name="startVt" select="$elementEndVt"/>
+      <xsl:with-param name="count" select="$count + 1"/>
+    </xsl:call-template>
+  </xsl:if>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *************** Extract design template elements *************** -->
+<!-- **************************************************************** -->
+<xsl:template name="ExtractDesignElements">
+  <xsl:param name="station"/>
+
+  <xsl:variable name="templateNames">
+    <xsl:call-template name="GetTemplateNames">
+      <xsl:with-param name="station" select="$station"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:if test="msxsl:node-set($templateNames)/prevTemplateName != ''">
+    <xsl:variable name="prevTemplate">
+      <xsl:call-template name="GetTemplateElements">
+        <xsl:with-param name="templateName" select="msxsl:node-set($templateNames)/prevTemplateName"/>
+      </xsl:call-template>
+    </xsl:variable>
+
+    <xsl:variable name="nextTemplate">
+      <xsl:call-template name="GetTemplateElements">
+        <xsl:with-param name="templateName" select="msxsl:node-set($templateNames)/nextTemplateName"/>
+      </xsl:call-template>
+    </xsl:variable>
+
+    <xsl:variable name="templatesAreEquivalent">
+      <xsl:choose>
+        <xsl:when test="msxsl:node-set($templateNames)/nextTemplateName = ''">true</xsl:when>
+        <xsl:otherwise>
+          <xsl:call-template name="TemplatesAreEquivalent">
+            <xsl:with-param name="prevTemplate" select="$prevTemplate"/>
+            <xsl:with-param name="nextTemplate" select="$nextTemplate"/>
+          </xsl:call-template>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+
+    <xsl:choose>
+      <xsl:when test="(msxsl:node-set($templateNames)/prevTemplateName = msxsl:node-set($templateNames)/nextTemplateName) or
+                      (msxsl:node-set($templateNames)/nextTemplateName = '') or ($templatesAreEquivalent = 'true')">
+        <!-- Both templates are the same or there is no next template - return the active surfaces for prevTemplate -->
+        <xsl:for-each select="msxsl:node-set($templateNames)/prevTemplateSurfaces/Surface[Used = 'true']">
+          <xsl:variable name="surfName" select="Name"/>
+          <xsl:for-each select="msxsl:node-set($prevTemplate)/templateSurface[@name = $surfName]">
+            <xsl:copy-of select="."/>
+          </xsl:for-each>
+        </xsl:for-each>
+      </xsl:when>
+
+      <xsl:otherwise>
+        <xsl:variable name="templateSurfacesToUse">
+          <xsl:call-template name="GetCommonTemplateSurfaces">
+            <xsl:with-param name="templateNames" select="$templateNames"/>
+          </xsl:call-template>
+        </xsl:variable>
+        
+        <!-- Work through the common template surfaces determining whether they can be interpolated -->
+        <xsl:for-each select="msxsl:node-set($templateSurfacesToUse)/surface">
+          <xsl:variable name="surfaceName" select="."/>
+
+          <!-- Need to compute an interpolated template if both template surfaces have same number of elements -->
+          <xsl:if test="count(msxsl:node-set($prevTemplate)/templateSurface[@name = $surfaceName]/element) = count(msxsl:node-set($nextTemplate)/templateSurface[@name = $surfaceName]/element)">
+            <xsl:variable name="deltaStation" select="msxsl:node-set($templateNames)/nextTemplateStation - msxsl:node-set($templateNames)/prevTemplateStation"/>
+            <xsl:variable name="ratio" select="($station - msxsl:node-set($templateNames)/prevTemplateStation) div $deltaStation"/>
+
+            <xsl:element name="templateSurface">
+              <xsl:attribute name="name">
+                <xsl:value-of select="$surfaceName"/>
+              </xsl:attribute>
+
+              <!-- Use a special Norwegian interpolation method if the previous and next templates each contain -->
+              <!-- 3 or 5 sequential tangential arc elements and the template elements are not inclined.        -->
+              <xsl:variable name="useNorwegianInterpolation">
+                <xsl:variable name="prevNorwegianStyleSection">
+                  <xsl:call-template name="NorwegianStyleSection">
+                    <xsl:with-param name="templateSurf" select="msxsl:node-set($prevTemplate)/templateSurface[@name = $surfaceName]"/>
+                  </xsl:call-template>
+                </xsl:variable>
+
+                <xsl:variable name="nextNorwegianStyleSection">
+                  <xsl:call-template name="NorwegianStyleSection">
+                    <xsl:with-param name="templateSurf" select="msxsl:node-set($nextTemplate)/templateSurface[@name = $surfaceName]"/>
+                  </xsl:call-template>
+                </xsl:variable>
+
+                <xsl:variable name="matchingArcIndices">
+                  <xsl:variable name="prevArcIndices">
+                    <xsl:call-template name="SequentialArcCount">
+                      <xsl:with-param name="templateSurf" select="msxsl:node-set($prevTemplate)/templateSurface[@name = $surfaceName]"/>
+                    </xsl:call-template>
+                  </xsl:variable>
+
+                  <xsl:variable name="nextArcIndices">
+                    <xsl:call-template name="SequentialArcCount">
+                      <xsl:with-param name="templateSurf" select="msxsl:node-set($nextTemplate)/templateSurface[@name = $surfaceName]"/>
+                    </xsl:call-template>
+                  </xsl:variable>
+
+                  <xsl:if test="(msxsl:node-set($prevArcIndices)/firstArcIndex = msxsl:node-set($nextArcIndices)/firstArcIndex) and
+                                (msxsl:node-set($prevArcIndices)/lastArcIndex = msxsl:node-set($nextArcIndices)/lastArcIndex)">true</xsl:if>
+                </xsl:variable>
+
+                <xsl:if test="($prevNorwegianStyleSection = 'true') and ($nextNorwegianStyleSection = 'true') and
+                              ($matchingArcIndices = 'true')">
+                  <xsl:value-of select="'true'"/>
+                </xsl:if>
+              </xsl:variable>
+
+              <xsl:choose>
+                <xsl:when test="$useNorwegianInterpolation = 'true'">
+                  <xsl:variable name="norwegianInterpArcs">
+                    <xsl:call-template name="NorwegianInterpolatedArcs">
+                      <xsl:with-param name="prevTemplateSurf" select="msxsl:node-set($prevTemplate)/templateSurface[@name = $surfaceName]"/>
+                      <xsl:with-param name="nextTemplateSurf" select="msxsl:node-set($nextTemplate)/templateSurface[@name = $surfaceName]"/>
+                      <xsl:with-param name="ratio" select="$ratio"/>
+                    </xsl:call-template>
+                  </xsl:variable>
+
+                  <xsl:call-template name="AssembleCompleteNorwegianTemplate">
+                    <xsl:with-param name="prevTemplateSurf" select="msxsl:node-set($prevTemplate)/templateSurface[@name = $surfaceName]"/>
+                    <xsl:with-param name="nextTemplateSurf" select="msxsl:node-set($nextTemplate)/templateSurface[@name = $surfaceName]"/>
+                    <xsl:with-param name="norwegianInterpArcs" select="$norwegianInterpArcs"/>
+                    <xsl:with-param name="ratio" select="$ratio"/>
+                  </xsl:call-template>
+                </xsl:when>
+                <xsl:otherwise>  <!-- Use standard interpolation -->
+                  <xsl:call-template name="StandardInterpolatedElements">
+                    <xsl:with-param name="prevTemplateSurf" select="msxsl:node-set($prevTemplate)/templateSurface[@name = $surfaceName]"/>
+                    <xsl:with-param name="nextTemplateSurf" select="msxsl:node-set($nextTemplate)/templateSurface[@name = $surfaceName]"/>
+                    <xsl:with-param name="ratio" select="$ratio"/>
+                  </xsl:call-template>
+                </xsl:otherwise>
+              </xsl:choose>
+            </xsl:element>   <!-- templateSurface -->
+          </xsl:if>
+        </xsl:for-each>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *************** Get the design template elements *************** -->
+<!-- **************************************************************** -->
+<xsl:template name="GetTemplateElements">
+  <xsl:param name="templateName"/>
+
+  <!-- Build up a node set of the template element components -->
+  <xsl:variable name="templateDeltas">
+    <xsl:choose>
+      <xsl:when test="count(msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplateRecord[Name = $templateName]/TemplateSurface) != 0">
+        <xsl:for-each select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplateRecord[Name = $templateName]/TemplateSurface">
+          <xsl:element name="templateSurface">
+            <xsl:attribute name="name">
+              <xsl:value-of select="Name"/>
+            </xsl:attribute>
+
+            <xsl:call-template name="GetTemplateDeltas"/>
+          </xsl:element>  <!-- templateSurface element -->
+        </xsl:for-each>
+      </xsl:when>
+
+      <xsl:otherwise>  <!-- An old txl file with no surfaces defined in it -->
+        <xsl:for-each select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplateRecord[Name = $templateName]">
+          <xsl:element name="templateSurface">
+            <xsl:attribute name="name">
+              <xsl:value-of select="'DefaultXSLSurface'"/>  <!-- Unique default name for surface -->
+            </xsl:attribute>
+
+            <xsl:call-template name="GetTemplateDeltas"/>
+          </xsl:element>  <!-- templateSurface element -->
+        </xsl:for-each>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>   <!-- templateDeltas -->
+
+  <xsl:for-each select="msxsl:node-set($templateDeltas)/templateSurface">
+    <xsl:variable name="surfaceName" select="@name"/>
+    <xsl:element name="templateSurface">
+      <xsl:attribute name="name">
+        <xsl:value-of select="@name"/>
+      </xsl:attribute>
+      <xsl:variable name="deltas">   <!-- Get the deltas into an appropriate node-set form to pass to AddTemplateElements function -->
+        <xsl:copy-of select="*"/>
+      </xsl:variable>
+
+      <xsl:variable name="startHz">
+        <xsl:choose>
+          <xsl:when test="$surfaceName = 'DefaultXSLSurface'">
+            <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplateRecord[Name = $templateName]/TemplateStartPoint/HorizontalOffset"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplateRecord[Name = $templateName]/TemplateSurface[Name = $surfaceName]/TemplateSurfaceStartPoint/HorizontalOffset"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+
+      <xsl:variable name="startVt">
+        <xsl:choose>
+          <xsl:when test="$surfaceName = 'DefaultXSLSurface'">
+            <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplateRecord[Name = $templateName]/TemplateStartPoint/VerticalOffset"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplateRecord[Name = $templateName]/TemplateSurface[Name = $surfaceName]/TemplateSurfaceStartPoint/VerticalOffset"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+
+      <xsl:call-template name="AddTemplateElements">
+        <xsl:with-param name="templateDeltas" select="$deltas"/>
+        <xsl:with-param name="startHz" select="$startHz"/>
+        <xsl:with-param name="startVt" select="$startVt"/>
+      </xsl:call-template>
+    </xsl:element>
+  </xsl:for-each>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************ Get the design template element deltas ************ -->
+<!-- **************************************************************** -->
+<xsl:template name="GetTemplateDeltas">
+
+  <xsl:for-each select="*">
+    <xsl:choose>
+      <xsl:when test="name(.) = 'LineDistanceAndVerticalDistance'">
+        <xsl:element name="delta">
+          <xsl:element name="hz">
+            <xsl:value-of select="HorizontalDistance"/>
+          </xsl:element>
+          <xsl:element name="vt">
+            <xsl:value-of select="VerticalDistance"/>
+          </xsl:element>
+          <xsl:copy-of select="Code"/>
+        </xsl:element>
+      </xsl:when>
+
+      <xsl:when test="name(.) = 'LineDistanceAndGrade'">
+        <xsl:element name="delta">
+          <xsl:element name="hz">
+            <xsl:value-of select="HorizontalDistance"/>
+          </xsl:element>
+          <xsl:element name="vt">
+            <xsl:value-of select="HorizontalDistance * (Grade div 100.0)"/>
+          </xsl:element>
+          <xsl:copy-of select="Code"/>
+        </xsl:element>
+      </xsl:when>
+
+      <xsl:when test="name(.) = 'LineEndpoint'">
+        <xsl:element name="delta">
+          <xsl:element name="endHz">
+            <xsl:value-of select="HorizontalEnd"/>
+          </xsl:element>
+          <xsl:element name="endVt">
+            <xsl:value-of select="VerticalEnd"/>
+          </xsl:element>
+          <xsl:copy-of select="Code"/>
+        </xsl:element>
+      </xsl:when>
+
+      <xsl:when test="name(.) = 'ArcEndPointAndRadius'">
+        <xsl:element name="delta">
+          <xsl:element name="endHz">
+            <xsl:value-of select="HorizontalEnd"/>
+          </xsl:element>
+          <xsl:element name="endVt">
+            <xsl:value-of select="VerticalEnd"/>
+          </xsl:element>
+          <xsl:element name="radius">
+            <xsl:value-of select="Radius"/>
+          </xsl:element>
+          <xsl:element name="largeArc">
+            <xsl:value-of select="LargeArc"/>
+          </xsl:element>
+          <xsl:copy-of select="Code"/>
+        </xsl:element>
+      </xsl:when>
+
+      <xsl:when test="name(.) = 'ArcAlignmentAndAngle'">
+        <xsl:element name="delta">
+          <!-- Always centred on 0,0 -->
+          <xsl:element name="centreHz">0.0</xsl:element>
+          <xsl:element name="centreVt">0.0</xsl:element>
+          <xsl:element name="deltaAngle">
+            <xsl:value-of select="DeltaAngle"/>
+          </xsl:element>
+          <xsl:copy-of select="Code"/>
+        </xsl:element>
+      </xsl:when>
+
+      <xsl:when test="name(.) = 'ArcCenterAndAngle'">
+        <xsl:element name="delta">
+          <xsl:element name="centreHz">
+            <xsl:value-of select="HorizontalCenter"/>
+          </xsl:element>
+          <xsl:element name="centreVt">
+            <xsl:value-of select="VerticalCenter"/>
+          </xsl:element>
+          <xsl:element name="deltaAngle">
+            <xsl:value-of select="DeltaAngle"/>
+          </xsl:element>
+          <xsl:copy-of select="Code"/>
+        </xsl:element>
+      </xsl:when>
+    </xsl:choose>
+  </xsl:for-each>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ****** Get names of surfaces switched on in each template ****** -->
+<!-- **************************************************************** -->
+<xsl:template name="GetCommonTemplateSurfaces">
+  <xsl:param name="templateNames"/>
+
+  <!-- Determine which surfaces are switched on in both the prevTemplate and nextTemplate -->
+  <xsl:choose>
+    <xsl:when test="(msxsl:node-set($templateNames)/prevTemplateSurfaces = '') and
+                    (msxsl:node-set($templateNames)/nextTemplateSurfaces = '')">
+      <!-- No surfaces defined (old format txl file) so use internal default surface name -->
+      <surface>DefaultXSLSurface</surface>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:for-each select="msxsl:node-set($templateNames)/prevTemplateSurfaces/Surface[Used = 'true']">
+        <xsl:variable name="surfaceName" select="Name"/>
+        <xsl:if test="msxsl:node-set($templateNames)/nextTemplateSurfaces/Surface[Name = $surfaceName]/Used = 'true'">
+          <surface>
+            <xsl:value-of select="$surfaceName"/>
+          </surface>
+        </xsl:if>
+      </xsl:for-each>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *** Compute the template elements by standard interpolation **** -->
+<!-- **************************************************************** -->
+<xsl:template name="StandardInterpolatedElements">
+  <xsl:param name="prevTemplateSurf"/>
+  <xsl:param name="nextTemplateSurf"/>
+  <xsl:param name="ratio"/>
+
+  <xsl:for-each select="msxsl:node-set($prevTemplateSurf)/element">
+    <xsl:variable name="posn" select="position()"/>
+    <xsl:element name="element">
+      <xsl:variable name="startHz">
+        <xsl:value-of select="startHz + (msxsl:node-set($nextTemplateSurf)/element[$posn]/startHz - startHz) * $ratio"/>
+      </xsl:variable>
+      <xsl:element name="startHz">
+        <xsl:value-of select="$startHz"/>
+      </xsl:element>
+
+      <xsl:variable name="startVt">
+        <xsl:value-of select="startVt + (msxsl:node-set($nextTemplateSurf)/element[$posn]/startVt - startVt) * $ratio"/>
+      </xsl:variable>
+      <xsl:element name="startVt">
+        <xsl:value-of select="$startVt"/>
+      </xsl:element>
+
+      <xsl:variable name="endHz">
+        <xsl:value-of select="endHz + (msxsl:node-set($nextTemplateSurf)/element[$posn]/endHz - endHz) * $ratio"/>
+      </xsl:variable>
+      <xsl:element name="endHz">
+        <xsl:value-of select="$endHz"/>
+      </xsl:element>
+
+      <xsl:variable name="endVt">
+        <xsl:value-of select="endVt + (msxsl:node-set($nextTemplateSurf)/element[$posn]/endVt - endVt) * $ratio"/>
+      </xsl:variable>
+      <xsl:element name="endVt">
+        <xsl:value-of select="$endVt"/>
+      </xsl:element>
+
+      <xsl:choose>
+        <xsl:when test="radius and msxsl:node-set($nextTemplateSurf)/element[$posn]/radius">  <!-- Matching arc elements -->
+          <xsl:variable name="radius">
+            <xsl:value-of select="radius + (msxsl:node-set($nextTemplateSurf)/element[$posn]/radius - radius) * $ratio"/>
+          </xsl:variable>
+          <xsl:element name="radius">
+            <xsl:value-of select="$radius"/>
+          </xsl:element>
+          <xsl:variable name="centrePtAndDeltaAngle">
+            <xsl:call-template name="CalcArcCentrePointAndDeltaAngle">
+              <xsl:with-param name="radius" select="$radius"/>
+              <xsl:with-param name="startHz" select="$startHz"/>
+              <xsl:with-param name="startVt" select="$startVt"/>
+              <xsl:with-param name="endHz" select="$endHz"/>
+              <xsl:with-param name="endVt" select="$endVt"/>
+              <xsl:with-param name="largeArc" select="largeArc"/>
+            </xsl:call-template>
+          </xsl:variable>
+          <xsl:element name="centreHz">
+            <xsl:value-of select="msxsl:node-set($centrePtAndDeltaAngle)/horizOffset"/>
+          </xsl:element>
+          <xsl:element name="centreVt">
+            <xsl:value-of select="msxsl:node-set($centrePtAndDeltaAngle)/vertOffset"/>
+          </xsl:element>
+          <xsl:element name="deltaAngle">
+            <xsl:value-of select="msxsl:node-set($centrePtAndDeltaAngle)/deltaAngle"/>
+          </xsl:element>
+          <xsl:element name="largeArc">
+            <xsl:value-of select="largeArc"/>
+          </xsl:element>
+          <xsl:element name="length">
+            <xsl:value-of select="math:abs(number($radius * (msxsl:node-set($centrePtAndDeltaAngle)/deltaAngle * math:PI() div 180.0)))"/>
+          </xsl:element>
+        </xsl:when>
+
+        <xsl:when test="radius and not(msxsl:node-set($nextTemplateSurf)/element[$posn]/radius)">  <!-- Arc changing to line -->
+          <xsl:variable name="radius">
+            <xsl:variable name="startRadConst" select="math:log10(number(radius))"/>
+            <xsl:variable name="endRadConst" select="math:log10(1000)"/>
+            <xsl:value-of select="math:pow(10, number($startRadConst + ($endRadConst - $startRadConst) * $ratio))"/>
+          </xsl:variable>
+          <xsl:element name="radius">
+            <xsl:value-of select="$radius"/>
+          </xsl:element>
+          <xsl:variable name="centrePtAndDeltaAngle">
+            <xsl:call-template name="CalcArcCentrePointAndDeltaAngle">
+              <xsl:with-param name="radius" select="$radius"/>
+              <xsl:with-param name="startHz" select="$startHz"/>
+              <xsl:with-param name="startVt" select="$startVt"/>
+              <xsl:with-param name="endHz" select="$endHz"/>
+              <xsl:with-param name="endVt" select="$endVt"/>
+              <xsl:with-param name="largeArc" select="largeArc"/>
+            </xsl:call-template>
+          </xsl:variable>
+          <xsl:element name="centreHz">
+            <xsl:value-of select="msxsl:node-set($centrePtAndDeltaAngle)/horizOffset"/>
+          </xsl:element>
+          <xsl:element name="centreVt">
+            <xsl:value-of select="msxsl:node-set($centrePtAndDeltaAngle)/vertOffset"/>
+          </xsl:element>
+          <xsl:element name="deltaAngle">
+            <xsl:value-of select="msxsl:node-set($centrePtAndDeltaAngle)/deltaAngle"/>
+          </xsl:element>
+          <xsl:element name="largeArc">
+            <xsl:value-of select="largeArc"/>
+          </xsl:element>
+          <xsl:element name="length">
+            <xsl:value-of select="math:abs(number($radius * (msxsl:node-set($centrePtAndDeltaAngle)/deltaAngle * math:PI() div 180.0)))"/>
+          </xsl:element>
+        </xsl:when>
+
+        <xsl:when test="not(radius) and msxsl:node-set($nextTemplateSurf)/element[$posn]/radius">  <!-- Line changing to arc -->
+          <xsl:variable name="radius">
+            <xsl:variable name="startRadConst" select="math:log10(1000)"/>
+            <xsl:variable name="endRadConst" select="math:log10(number(msxsl:node-set($nextTemplateSurf)/element[$posn]/radius))"/>
+            <xsl:value-of select="math:pow(10, number($startRadConst + ($endRadConst - $startRadConst) * $ratio))"/>
+          </xsl:variable>
+          <xsl:element name="radius">
+            <xsl:value-of select="$radius"/>
+          </xsl:element>
+          <xsl:variable name="centrePtAndDeltaAngle">
+            <xsl:call-template name="CalcArcCentrePointAndDeltaAngle">
+              <xsl:with-param name="radius" select="$radius"/>
+              <xsl:with-param name="startHz" select="$startHz"/>
+              <xsl:with-param name="startVt" select="$startVt"/>
+              <xsl:with-param name="endHz" select="$endHz"/>
+              <xsl:with-param name="endVt" select="$endVt"/>
+              <xsl:with-param name="largeArc" select="largeArc"/>
+            </xsl:call-template>
+          </xsl:variable>
+          <xsl:element name="centreHz">
+            <xsl:value-of select="msxsl:node-set($centrePtAndDeltaAngle)/horizOffset"/>
+          </xsl:element>
+          <xsl:element name="centreVt">
+            <xsl:value-of select="msxsl:node-set($centrePtAndDeltaAngle)/vertOffset"/>
+          </xsl:element>
+          <xsl:element name="deltaAngle">
+            <xsl:value-of select="msxsl:node-set($centrePtAndDeltaAngle)/deltaAngle"/>
+          </xsl:element>
+          <xsl:element name="largeArc">
+            <xsl:value-of select="largeArc"/>
+          </xsl:element>
+          <xsl:element name="length">
+            <xsl:value-of select="math:abs(number($radius * (msxsl:node-set($centrePtAndDeltaAngle)/deltaAngle * math:PI() div 180.0)))"/>
+          </xsl:element>
+        </xsl:when>
+        <xsl:when test="not(radius) and not(msxsl:node-set($nextTemplateSurf)/element[$posn]/radius)">  <!-- No arcs involved -->
+          <xsl:element name="length">
+            <xsl:call-template name="InverseDistance">
+              <xsl:with-param name="deltaN" select="$startVt - $endVt"/>
+              <xsl:with-param name="deltaE" select="$startHz - $endHz"/>
+            </xsl:call-template>
+          </xsl:element>
+        </xsl:when>
+      </xsl:choose>
+      <xsl:copy-of select="code"/>
+    </xsl:element>
+  </xsl:for-each>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Check if this is a Norwegian style section ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="NorwegianStyleSection">
+  <xsl:param name="templateSurf"/>
+
+  <xsl:variable name="sequentialArcIndices">
+    <xsl:call-template name="SequentialArcCount">
+      <xsl:with-param name="templateSurf" select="$templateSurf"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:if test="string(number(msxsl:node-set($sequentialArcIndices)/firstArcIndex)) != 'NaN'">
+    <!-- We have a template with 3 or 5 sequential arc elements -->
+    <xsl:variable name="firstArcIndex" select="msxsl:node-set($sequentialArcIndices)/firstArcIndex"/>
+    <xsl:variable name="lastArcIndex" select="msxsl:node-set($sequentialArcIndices)/lastArcIndex"/>
+    <xsl:variable name="centreIdx" select="$firstArcIndex + ($lastArcIndex - $firstArcIndex) div 2"/>
+    <xsl:variable name="deltaTol">0.005</xsl:variable>
+    <xsl:variable name="centreArcPtsVtDelta" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/startVt - msxsl:node-set($templateSurf)/element[number($centreIdx)]/endVt"/>
+    <xsl:if test="math:abs(number($centreArcPtsVtDelta)) &lt; $deltaTol">
+      <!-- The template is not tilted -->
+      <xsl:variable name="deltaRadius" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex)]/radius - msxsl:node-set($templateSurf)/element[number($lastArcIndex)]/radius"/>
+      <xsl:if test="math:abs(number($deltaRadius)) &lt; 0.002">
+        <!-- The radii of the first and third arcs are equal -->
+        <xsl:choose>
+          <xsl:when test="$lastArcIndex - $firstArcIndex + 1 = 3">
+            <xsl:variable name="tangentialFirstArcTest">
+              <xsl:call-template name="CrossProduct">
+                <xsl:with-param name="pointX" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex)]/centreHz"/>
+                <xsl:with-param name="pointY" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex)]/centreVt"/>
+                <xsl:with-param name="startX" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/centreHz"/>
+                <xsl:with-param name="startY" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/centreVt"/>
+                <xsl:with-param name="endX" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/startHz"/>
+                <xsl:with-param name="endY" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/startVt"/>
+              </xsl:call-template>
+            </xsl:variable>
+            <xsl:variable name="absTangentialFirstArcTest" select="math:abs(number($tangentialFirstArcTest))"/>
+
+            <xsl:variable name="tangentialLastArcTest">
+              <xsl:call-template name="CrossProduct">
+                <xsl:with-param name="pointX" select="msxsl:node-set($templateSurf)/element[number($lastArcIndex)]/centreHz"/>
+                <xsl:with-param name="pointY" select="msxsl:node-set($templateSurf)/element[number($lastArcIndex)]/centreVt"/>
+                <xsl:with-param name="startX" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/centreHz"/>
+                <xsl:with-param name="startY" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/centreVt"/>
+                <xsl:with-param name="endX" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/endHz"/>
+                <xsl:with-param name="endY" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/endVt"/>
+              </xsl:call-template>
+            </xsl:variable>
+            <xsl:variable name="absTangentialLastArcTest" select="math:abs(number($tangentialLastArcTest))"/>
+
+            <xsl:if test="($absTangentialFirstArcTest &lt; $deltaTol) and ($absTangentialLastArcTest &lt; $deltaTol)">
+              <xsl:value-of select="'true'"/>
+            </xsl:if>
+          </xsl:when>
+
+          <xsl:otherwise>
+            <xsl:variable name="tangentialFirstArcTest">
+              <xsl:call-template name="CrossProduct">
+                <xsl:with-param name="pointX" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex)]/centreHz"/>
+                <xsl:with-param name="pointY" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex)]/centreVt"/>
+                <xsl:with-param name="startX" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex) + 1]/centreHz"/>
+                <xsl:with-param name="startY" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex) + 1]/centreVt"/>
+                <xsl:with-param name="endX" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex) + 1]/startHz"/>
+                <xsl:with-param name="endY" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex) + 1]/startVt"/>
+              </xsl:call-template>
+            </xsl:variable>
+            <xsl:variable name="absTangentialFirstArcTest" select="math:abs(number($tangentialFirstArcTest))"/>
+
+            <xsl:variable name="tangentialFirstTransArcTest">
+              <xsl:call-template name="CrossProduct">
+                <xsl:with-param name="pointX" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex) + 1]/centreHz"/>
+                <xsl:with-param name="pointY" select="msxsl:node-set($templateSurf)/element[number($firstArcIndex) + 1]/centreVt"/>
+                <xsl:with-param name="startX" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/centreHz"/>
+                <xsl:with-param name="startY" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/centreVt"/>
+                <xsl:with-param name="endX" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/startHz"/>
+                <xsl:with-param name="endY" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/startVt"/>
+              </xsl:call-template>
+            </xsl:variable>
+            <xsl:variable name="absTangentialFirstTransArcTest" select="math:abs(number($tangentialFirstTransArcTest))"/>
+
+            <xsl:variable name="tangentialSecondTransArcTest">
+              <xsl:call-template name="CrossProduct">
+                <xsl:with-param name="pointX" select="msxsl:node-set($templateSurf)/element[number($lastArcIndex) - 1]/centreHz"/>
+                <xsl:with-param name="pointY" select="msxsl:node-set($templateSurf)/element[number($lastArcIndex) - 1]/centreVt"/>
+                <xsl:with-param name="startX" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/centreHz"/>
+                <xsl:with-param name="startY" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/centreVt"/>
+                <xsl:with-param name="endX" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/endHz"/>
+                <xsl:with-param name="endY" select="msxsl:node-set($templateSurf)/element[number($centreIdx)]/endVt"/>
+              </xsl:call-template>
+            </xsl:variable>
+            <xsl:variable name="absTangentialSecondTransArcTest" select="math:abs(number($tangentialSecondTransArcTest))"/>
+
+            <xsl:variable name="tangentialLastArcTest">
+              <xsl:call-template name="CrossProduct">
+                <xsl:with-param name="pointX" select="msxsl:node-set($templateSurf)/element[number($lastArcIndex)]/centreHz"/>
+                <xsl:with-param name="pointY" select="msxsl:node-set($templateSurf)/element[number($lastArcIndex)]/centreVt"/>
+                <xsl:with-param name="startX" select="msxsl:node-set($templateSurf)/element[number($lastArcIndex) - 1]/centreHz"/>
+                <xsl:with-param name="startY" select="msxsl:node-set($templateSurf)/element[number($lastArcIndex) - 1]/centreVt"/>
+                <xsl:with-param name="endX" select="msxsl:node-set($templateSurf)/element[number($lastArcIndex) - 1]/endHz"/>
+                <xsl:with-param name="endY" select="msxsl:node-set($templateSurf)/element[number($lastArcIndex) - 1]/endVt"/>
+              </xsl:call-template>
+            </xsl:variable>
+            <xsl:variable name="absTangentialLastArcTest" select="math:abs(number($tangentialLastArcTest))"/>
+
+            <xsl:if test="($absTangentialFirstArcTest &lt; $deltaTol) and ($absTangentialLastArcTest &lt; $deltaTol) and
+                          ($absTangentialFirstTransArcTest &lt; $deltaTol) and ($absTangentialSecondTransArcTest &lt; $deltaTol)">
+              <xsl:value-of select="'true'"/>
+            </xsl:if>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:if>
+    </xsl:if>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ***** Check for appropriate sequential arc count (3 or 5) ****** -->
+<!-- **************************************************************** -->
+<xsl:template name="SequentialArcCount">
+  <xsl:param name="templateSurf"/>
+
+  <xsl:variable name="arcs">
+    <xsl:if test="(count(msxsl:node-set($templateSurf)/element/radius) = 3) or (count(msxsl:node-set($templateSurf)/element/radius) = 5)">
+      <!-- There are an appropriate number of arcs in the template -->
+      <xsl:for-each select="msxsl:node-set($templateSurf)/element">
+        <xsl:if test="radius">   <!-- This is an arc -->
+          <xsl:if test="(count(preceding-sibling::*/radius) = 0) or (preceding-sibling::*[1]/radius)">
+            <xsl:element name="arc">
+              <xsl:value-of select="position()"/>
+            </xsl:element>
+          </xsl:if>
+        </xsl:if>
+      </xsl:for-each>
+    </xsl:if>
+  </xsl:variable>
+
+  <xsl:if test="(count(msxsl:node-set($arcs)/arc) = 3) or (count(msxsl:node-set($arcs)/arc) = 5)">
+    <xsl:variable name="seqentialTest">
+      <xsl:for-each select="msxsl:node-set($arcs)/arc[position() != 1]">
+        <xsl:element name="test">
+          <xsl:choose>
+            <xsl:when test=". - preceding-sibling::arc[1] = 1">true</xsl:when>
+            <xsl:otherwise>false</xsl:otherwise>
+          </xsl:choose>
+        </xsl:element>
+      </xsl:for-each>
+    </xsl:variable>
+
+    <xsl:if test="count(msxsl:node-set($seqentialTest)/test[. = 'false']) = 0">
+      <xsl:element name="firstArcIndex">
+        <xsl:value-of select="msxsl:node-set($arcs)/arc[1]"/>
+      </xsl:element>
+
+      <xsl:element name="lastArcIndex">
+        <xsl:value-of select="msxsl:node-set($arcs)/arc[last()]"/>
+      </xsl:element>
+    </xsl:if>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ***** Compute template arcs by Norwegian type interpolation **** -->
+<!-- **************************************************************** -->
+<xsl:template name="NorwegianInterpolatedArcs">
+  <xsl:param name="prevTemplateSurf"/>
+  <xsl:param name="nextTemplateSurf"/>
+  <xsl:param name="ratio"/>
+
+  <!-- The Norwegian method of interpolation only applies when working with cross-section consisting of three
+       or five tangential arcs.  The method maintains the radii of the first and last arcs (referred to as wall
+       arcs) as well as the radii of the second and fourth 'transition' arcs when present, and computes a new
+       radius for the central (or roof) arc.  It interpolates the angles (Ø) between horizontal and the radial
+       lines to the upper points of the wall arcs (with the radius Rv).  The interpolation is:
+         Ø' = Ø1 + (Ø2 - Ø1) * (station - startStation) / (endStation - startStation)
+       The angle ß can then be resolved and the distance AB interpolated.  Using these values the radius Rh at
+       the interpolated section can be computed.  The diagram below shows a typical 3 arc section.
+
+                                                   .    .
+                                              .              .
+                                          .                      .
+                                      .                              .
+                                    .                                  .
+                                 A .                                    . B
+                                 .    .                               .   .
+                                .       .                           .      .
+                               .          .Rh                  Rh .         .
+                              .             .                   .            .
+                              .            Rv .               . Rv           .
+                             .                  .           .                 .
+                             .                Ø   .   ß   .  Ø                .
+                             x~~~~~~~~~~~~~~~~~~~~~~x   x~~~~~~~~~~~~~~~~~~~~~x
+                             .              |         x                       .
+                              .             |Yv       Centre                 .
+                               .            |                               .
+  -->
+
+  <xsl:variable name="arcIndices">
+    <xsl:call-template name="SequentialArcCount">
+      <xsl:with-param name="templateSurf" select="$prevTemplateSurf"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="firstArcIdx" select="msxsl:node-set($arcIndices)/firstArcIndex"/>
+  <xsl:variable name="lastArcIdx" select="msxsl:node-set($arcIndices)/lastArcIndex"/>
+
+  <!-- Compute Ø for the prevTemplate -->
+  <xsl:variable name="phiPrev">
+    <xsl:call-template name="ScribedAngle">
+      <xsl:with-param name="startHz" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/centreHz - 50"/>  <!-- Point left of centre point -->
+      <xsl:with-param name="startVt" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/centreVt"/>
+      <xsl:with-param name="endHz" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/endHz"/>
+      <xsl:with-param name="endVt" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/endVt"/>
+      <xsl:with-param name="centreHz" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/centreHz"/>
+      <xsl:with-param name="centreVt" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/centreVt"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <!-- Compute Ø for the nextTemplate -->
+  <xsl:variable name="phiNext">
+    <xsl:call-template name="ScribedAngle">
+      <xsl:with-param name="startHz" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx)]/centreHz - 50"/>  <!-- Point left of centre point -->
+      <xsl:with-param name="startVt" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx)]/centreVt"/>
+      <xsl:with-param name="endHz" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx)]/endHz"/>
+      <xsl:with-param name="endVt" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx)]/endVt"/>
+      <xsl:with-param name="centreHz" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx)]/centreHz"/>
+      <xsl:with-param name="centreVt" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx)]/centreVt"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <!-- Compute interpolated Ø -->
+  <xsl:variable name="interpPhi" select="$phiPrev + ($phiNext - $phiPrev) * $ratio"/>
+
+  <!-- As the left and right wall arcs may be different lengths retain separate Yv value for the first and last arcs -->
+  <xsl:variable name="prevYvLeft" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/centreVt - msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/startVt"/>
+  <xsl:variable name="prevYvRight" select="msxsl:node-set($prevTemplateSurf)/element[number($lastArcIdx)]/centreVt - msxsl:node-set($prevTemplateSurf)/element[number($lastArcIdx)]/endVt"/>
+
+  <xsl:variable name="nextYvLeft" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx)]/centreVt - msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx)]/startVt"/>
+  <xsl:variable name="nextYvRight" select="msxsl:node-set($nextTemplateSurf)/element[number($lastArcIdx)]/centreVt - msxsl:node-set($nextTemplateSurf)/element[number($lastArcIdx)]/endVt"/>
+
+  <!-- Compute interpolated Yv values -->
+  <xsl:variable name="interpYvLeft" select="$prevYvLeft + ($nextYvLeft - $prevYvLeft) * $ratio"/>
+  <xsl:variable name="interpYvRight" select="$prevYvRight + ($nextYvRight - $prevYvRight) * $ratio"/>
+
+  <!-- Compute interpolated start vertical position (to use in later vertical adjustment of cross-section) -->
+  <xsl:variable name="interpStartVt" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/startVt + (msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx)]/startVt - msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/startVt) * $ratio"/>
+
+  <xsl:variable name="centreIdx" select="$firstArcIdx + ($lastArcIdx - $firstArcIdx) div 2"/>
+  <!-- Compute the interpolated A and B positions -->
+  <xsl:variable name="interpA">
+    <xsl:element name="hz">
+      <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($centreIdx)]/startHz + (msxsl:node-set($nextTemplateSurf)/element[number($centreIdx)]/startHz - msxsl:node-set($prevTemplateSurf)/element[number($centreIdx)]/startHz) * $ratio"/>
+    </xsl:element>
+
+    <xsl:element name="vt">
+      <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($centreIdx)]/startVt + (msxsl:node-set($nextTemplateSurf)/element[number($centreIdx)]/startVt - msxsl:node-set($prevTemplateSurf)/element[number($centreIdx)]/startVt) * $ratio"/>
+    </xsl:element>
+  </xsl:variable>
+
+  <xsl:variable name="interpB">
+    <xsl:element name="hz">
+      <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($centreIdx)]/endHz + (msxsl:node-set($nextTemplateSurf)/element[number($centreIdx)]/endHz - msxsl:node-set($prevTemplateSurf)/element[number($centreIdx)]/endHz) * $ratio"/>
+    </xsl:element>
+
+    <xsl:element name="vt">
+      <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($centreIdx)]/endVt + (msxsl:node-set($nextTemplateSurf)/element[number($centreIdx)]/endVt - msxsl:node-set($prevTemplateSurf)/element[number($centreIdx)]/endVt) * $ratio"/>
+    </xsl:element>
+  </xsl:variable>
+
+  <!-- Compute the distance between the interpolated A and B positions -->
+  <xsl:variable name="interpAB">
+    <xsl:call-template name="InverseDistance">
+      <xsl:with-param name="deltaN" select="msxsl:node-set($interpA)/vt - msxsl:node-set($interpB)/vt"/>
+      <xsl:with-param name="deltaE" select="msxsl:node-set($interpA)/hz - msxsl:node-set($interpB)/hz"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="interpTransAngle">
+    <xsl:choose>
+      <xsl:when test="$lastArcIdx - $firstArcIdx + 1 = 5">
+        <xsl:variable name="prevTransAngle">
+          <xsl:call-template name="ScribedAngle">
+            <xsl:with-param name="startHz" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx) + 1]/startHz"/>
+            <xsl:with-param name="startVt" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx) + 1]/startVt"/>
+            <xsl:with-param name="endHz" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx) + 1]/endHz"/>
+            <xsl:with-param name="endVt" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx) + 1]/endVt"/>
+            <xsl:with-param name="centreHz" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx) + 1]/centreHz"/>
+            <xsl:with-param name="centreVt" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx) + 1]/centreVt"/>
+          </xsl:call-template>
+        </xsl:variable>
+
+        <xsl:variable name="nextTransAngle">
+          <xsl:call-template name="ScribedAngle">
+            <xsl:with-param name="startHz" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx) + 1]/startHz"/>
+            <xsl:with-param name="startVt" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx) + 1]/startVt"/>
+            <xsl:with-param name="endHz" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx) + 1]/endHz"/>
+            <xsl:with-param name="endVt" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx) + 1]/endVt"/>
+            <xsl:with-param name="centreHz" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx) + 1]/centreHz"/>
+            <xsl:with-param name="centreVt" select="msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx) + 1]/centreVt"/>
+          </xsl:call-template>
+        </xsl:variable>
+
+        <xsl:value-of select="$prevTransAngle + ($nextTransAngle - $prevTransAngle) * $ratio"/>
+      </xsl:when>
+      <xsl:otherwise>0</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <!-- Compute interpolated transition arc radius -->
+  <xsl:variable name="radiusT">
+    <xsl:if test="$lastArcIdx - $firstArcIdx + 1 = 5">
+      <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx) + 1]/radius + (msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx) + 1]/radius - msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx) + 1]/radius) * $ratio"/>
+    </xsl:if>
+  </xsl:variable>
+
+  <!-- Compute interpolated wall arc radius -->
+  <xsl:variable name="radiusV" select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/radius + (msxsl:node-set($nextTemplateSurf)/element[number($firstArcIdx)]/radius - msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/radius) * $ratio"/>
+
+  <xsl:variable name="radiusH" select="($interpAB div 2.0) div math:sin(number($halfPi - ($interpPhi + $interpTransAngle)))"/>
+
+  <xsl:call-template name="BuildNorwegianInterpolatedArcs">
+    <xsl:with-param name="radiusH" select="$radiusH"/>
+    <xsl:with-param name="radiusT" select="$radiusT"/>
+    <xsl:with-param name="radiusV" select="$radiusV"/>
+    <xsl:with-param name="interpStartVt" select="$interpStartVt"/>
+    <xsl:with-param name="interpPhi" select="$interpPhi"/>
+    <xsl:with-param name="interpYvLeft" select="$interpYvLeft"/>
+    <xsl:with-param name="interpYvRight" select="$interpYvRight"/>
+    <xsl:with-param name="interpTransAngle" select="$interpTransAngle"/>
+    <xsl:with-param name="interpA" select="$interpA"/>
+    <xsl:with-param name="interpB" select="$interpB"/>
+    <xsl:with-param name="prevTemplateSurf" select="$prevTemplateSurf"/>
+    <xsl:with-param name="firstArcIdx" select="$firstArcIdx"/>
+    <xsl:with-param name="lastArcIdx" select="$lastArcIdx"/>
+  </xsl:call-template>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ** Compute template elements by Norwegian type interpolation *** -->
+<!-- **************************************************************** -->
+<xsl:template name="BuildNorwegianInterpolatedArcs">
+  <xsl:param name="radiusH"/>
+  <xsl:param name="radiusT"/>
+  <xsl:param name="radiusV"/>
+  <xsl:param name="interpStartVt"/>
+  <xsl:param name="interpPhi"/>
+  <xsl:param name="interpYvLeft"/>
+  <xsl:param name="interpYvRight"/>
+  <xsl:param name="interpTransAngle"/>
+  <xsl:param name="interpA"/>
+  <xsl:param name="interpB"/>
+  <xsl:param name="prevTemplateSurf"/>
+  <xsl:param name="firstArcIdx"/>
+  <xsl:param name="lastArcIdx"/>
+
+  <xsl:variable name="centreArcIdx" select="$firstArcIdx + ($lastArcIdx - $firstArcIdx) div 2"/>
+
+  <!-- First establish the central arc -->
+  <xsl:variable name="centralArc">
+    <xsl:element name="startHz">
+      <xsl:value-of select="msxsl:node-set($interpA)/hz"/>
+    </xsl:element>
+
+    <xsl:element name="startVt">
+      <xsl:value-of select="msxsl:node-set($interpA)/vt"/>
+    </xsl:element>
+
+    <xsl:element name="endHz">
+      <xsl:value-of select="msxsl:node-set($interpB)/hz"/>
+    </xsl:element>
+
+    <xsl:element name="endVt">
+      <xsl:value-of select="msxsl:node-set($interpB)/vt"/>
+    </xsl:element>
+
+    <xsl:element name="radius">
+      <xsl:value-of select="$radiusH"/>
+    </xsl:element>
+
+    <xsl:element name="largeArc">
+      <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($centreArcIdx)]/largeArc"/>
+    </xsl:element>
+
+    <xsl:variable name="arcVals">
+      <xsl:call-template name="CalcArcCentrePointAndDeltaAngle">
+        <xsl:with-param name="radius" select="$radiusH"/>
+        <xsl:with-param name="startHz" select="msxsl:node-set($interpA)/hz"/>
+        <xsl:with-param name="startVt" select="msxsl:node-set($interpA)/vt"/>
+        <xsl:with-param name="endHz" select="msxsl:node-set($interpB)/hz"/>
+        <xsl:with-param name="endVt" select="msxsl:node-set($interpB)/vt"/>
+        <xsl:with-param name="largeArc" select="msxsl:node-set($prevTemplateSurf)/element[number($centreArcIdx)]/largeArc"/>
+      </xsl:call-template>
+    </xsl:variable>
+
+    <xsl:element name="centreHz">
+      <xsl:value-of select="msxsl:node-set($arcVals)/horizOffset"/>
+    </xsl:element>
+
+    <xsl:element name="centreVt">
+      <xsl:value-of select="msxsl:node-set($arcVals)/vertOffset"/>
+    </xsl:element>
+
+    <xsl:element name="deltaAngle">
+      <xsl:value-of select="msxsl:node-set($arcVals)/deltaAngle"/>
+    </xsl:element>
+
+    <xsl:element name="length">
+      <xsl:value-of select="math:abs(number($radiusH * (msxsl:node-set($arcVals)/deltaAngle * math:PI() div 180.0)))"/>
+    </xsl:element>
+  </xsl:variable>
+
+  <!-- The extra portion of the first and last (wall) angles is determined by the interpYv value which specifies -->
+  <!-- the vertical distance below the firstArc centre point to the lowest point of the arc.  This extra angle   -->
+  <!-- in addition to the interpPhi angle is computed from extraAngle =ArcSine(interpYv / radiusV)               -->
+  <xsl:variable name="extraAngleLeft" select="math:asin(number($interpYvLeft div $radiusV))"/>
+  <xsl:variable name="extraAngleRight" select="math:asin(number($interpYvRight div $radiusV))"/>
+
+  <!-- Potential transition arc -->
+  <xsl:variable name="transArc1">
+    <xsl:if test="$lastArcIdx - $firstArcIdx + 1 = 5">
+      <xsl:element name="endHz">
+        <xsl:value-of select="msxsl:node-set($interpA)/hz"/>
+      </xsl:element>
+
+      <xsl:element name="endVt">
+        <xsl:value-of select="msxsl:node-set($interpA)/vt"/>
+      </xsl:element>
+
+      <xsl:variable name="centreHz">
+        <xsl:value-of select="msxsl:node-set($centralArc)/startHz + (msxsl:node-set($centralArc)/centreHz - msxsl:node-set($centralArc)/startHz) * $radiusT div $radiusH"/>
+      </xsl:variable>
+
+      <xsl:element name="centreHz">
+        <xsl:value-of select="$centreHz"/>
+      </xsl:element>
+
+      <xsl:variable name="centreVt">
+        <xsl:value-of select="msxsl:node-set($centralArc)/startVt + (msxsl:node-set($centralArc)/centreVt - msxsl:node-set($centralArc)/startVt) * $radiusT div $radiusH"/>
+      </xsl:variable>
+
+      <xsl:element name="centreVt">
+        <xsl:value-of select="$centreVt"/>
+      </xsl:element>
+
+      <xsl:element name="radius">
+        <xsl:value-of select="$radiusT"/>
+      </xsl:element>
+
+      <xsl:variable name="startPt">
+        <xsl:call-template name="CalcArcEndPoint">
+          <xsl:with-param name="radius" select="$radiusT"/>
+          <xsl:with-param name="deltaAngle" select="$interpTransAngle * -180.0 div math:PI()"/>  <!-- Degrees value reqd and needs to be negated -->
+          <xsl:with-param name="startHz" select="msxsl:node-set($interpA)/hz"/>
+          <xsl:with-param name="startVt" select="msxsl:node-set($interpA)/vt"/>
+          <xsl:with-param name="centreHz" select="$centreHz"/>
+          <xsl:with-param name="centreVt" select="$centreVt"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:element name="startHz">
+        <xsl:value-of select="msxsl:node-set($startPt)/horizOffset"/>
+      </xsl:element>
+
+      <xsl:element name="startVt">
+        <xsl:value-of select="msxsl:node-set($startPt)/vertOffset"/>
+      </xsl:element>
+
+      <xsl:element name="largeArc">
+        <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx) + 1]/largeArc"/>
+      </xsl:element>
+
+      <xsl:element name="deltaAngle">
+        <xsl:value-of select="$interpTransAngle * 180.0 div math:PI()"/>  <!-- In degrees -->
+      </xsl:element>
+
+      <xsl:element name="length">
+        <xsl:value-of select="math:abs(number($radiusT * $interpTransAngle))"/>
+      </xsl:element>
+    </xsl:if>
+  </xsl:variable>
+
+  <!-- Now build the first arc -->
+  <xsl:variable name="firstArc">
+    <xsl:choose>
+      <xsl:when test="$lastArcIdx - $firstArcIdx + 1 = 5"> <!-- There is a transition arc - join on to it -->
+        <xsl:element name="endHz">
+          <xsl:value-of select="msxsl:node-set($transArc1)/startHz"/>
+        </xsl:element>
+
+        <xsl:element name="endVt">
+          <xsl:value-of select="msxsl:node-set($transArc1)/startVt"/>
+        </xsl:element>
+
+        <xsl:variable name="centreHz">
+          <xsl:value-of select="msxsl:node-set($transArc1)/startHz + (msxsl:node-set($transArc1)/centreHz - msxsl:node-set($transArc1)/startHz) *
+                                $radiusV div $radiusT"/>
+        </xsl:variable>
+
+        <xsl:element name="centreHz">
+          <xsl:value-of select="$centreHz"/>
+        </xsl:element>
+
+        <xsl:variable name="centreVt">
+          <xsl:value-of select="msxsl:node-set($transArc1)/startVt + (msxsl:node-set($transArc1)/centreVt - msxsl:node-set($transArc1)/startVt) *
+                                $radiusV div $radiusT"/>
+        </xsl:variable>
+
+        <xsl:element name="centreVt">
+          <xsl:value-of select="$centreVt"/>
+        </xsl:element>
+
+        <xsl:variable name="startPt">
+          <xsl:call-template name="CalcArcEndPoint">
+            <xsl:with-param name="radius" select="$radiusV"/>
+            <xsl:with-param name="deltaAngle" select="($interpPhi + $extraAngleLeft) * -180.0 div math:PI()"/>  <!-- Degrees value reqd and needs to be negated -->
+            <xsl:with-param name="startHz" select="msxsl:node-set($transArc1)/startHz"/>
+            <xsl:with-param name="startVt" select="msxsl:node-set($transArc1)/startVt"/>
+            <xsl:with-param name="centreHz" select="$centreHz"/>
+            <xsl:with-param name="centreVt" select="$centreVt"/>
+          </xsl:call-template>
+        </xsl:variable>
+
+        <xsl:element name="startHz">
+          <xsl:value-of select="msxsl:node-set($startPt)/horizOffset"/>
+        </xsl:element>
+
+        <xsl:element name="startVt">
+          <xsl:value-of select="msxsl:node-set($startPt)/vertOffset"/>
+        </xsl:element>
+      </xsl:when>
+
+      <xsl:otherwise>  <!-- There is no transition arc - join on to central (roof) arc -->
+        <xsl:element name="endHz">
+          <xsl:value-of select="msxsl:node-set($interpA)/hz"/>
+        </xsl:element>
+
+        <xsl:element name="endVt">
+          <xsl:value-of select="msxsl:node-set($interpA)/vt"/>
+        </xsl:element>
+
+        <xsl:variable name="centreHz">
+          <xsl:value-of select="msxsl:node-set($centralArc)/startHz + (msxsl:node-set($centralArc)/centreHz - msxsl:node-set($centralArc)/startHz) *
+                                $radiusV div $radiusH"/>
+        </xsl:variable>
+
+        <xsl:element name="centreHz">
+          <xsl:value-of select="$centreHz"/>
+        </xsl:element>
+
+        <xsl:variable name="centreVt">
+          <xsl:value-of select="msxsl:node-set($centralArc)/startVt + (msxsl:node-set($centralArc)/centreVt - msxsl:node-set($centralArc)/startVt) *
+                                $radiusV div $radiusH"/>
+        </xsl:variable>
+
+        <xsl:element name="centreVt">
+          <xsl:value-of select="$centreVt"/>
+        </xsl:element>
+
+        <xsl:variable name="startPt">
+          <xsl:call-template name="CalcArcEndPoint">
+            <xsl:with-param name="radius" select="$radiusV"/>
+            <xsl:with-param name="deltaAngle" select="($interpPhi + $extraAngleLeft) * -180.0 div math:PI()"/>  <!-- Degrees value reqd and needs to be negated -->
+            <xsl:with-param name="startHz" select="msxsl:node-set($interpA)/hz"/>
+            <xsl:with-param name="startVt" select="msxsl:node-set($interpA)/vt"/>
+            <xsl:with-param name="centreHz" select="$centreHz"/>
+            <xsl:with-param name="centreVt" select="$centreVt"/>
+          </xsl:call-template>
+        </xsl:variable>
+
+        <xsl:element name="startHz">
+          <xsl:value-of select="msxsl:node-set($startPt)/horizOffset"/>
+        </xsl:element>
+
+        <xsl:element name="startVt">
+          <xsl:value-of select="msxsl:node-set($startPt)/vertOffset"/>
+        </xsl:element>
+      </xsl:otherwise>
+    </xsl:choose>
+
+    <xsl:element name="radius">
+      <xsl:value-of select="$radiusV"/>
+    </xsl:element>
+
+    <xsl:element name="largeArc">
+      <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($firstArcIdx)]/largeArc"/>
+    </xsl:element>
+
+    <xsl:element name="deltaAngle">
+      <xsl:value-of select="($interpPhi + $extraAngleLeft) * 180.0 div math:PI()"/>  <!-- In degrees -->
+    </xsl:element>
+
+    <xsl:element name="length">
+      <xsl:value-of select="math:abs(number($radiusV * ($interpPhi + $extraAngleLeft)))"/>
+    </xsl:element>
+  </xsl:variable>
+
+  <!-- Build the second transition arc if required -->
+  <xsl:variable name="transArc2">
+    <xsl:if test="$lastArcIdx - $firstArcIdx + 1 = 5">
+      <xsl:element name="startHz">
+        <xsl:value-of select="msxsl:node-set($interpB)/hz"/>
+      </xsl:element>
+
+      <xsl:element name="startVt">
+        <xsl:value-of select="msxsl:node-set($interpB)/vt"/>
+      </xsl:element>
+
+      <xsl:variable name="centreHz">
+        <xsl:value-of select="msxsl:node-set($centralArc)/endHz + (msxsl:node-set($centralArc)/centreHz - msxsl:node-set($centralArc)/endHz) *$radiusT div $radiusH"/>
+      </xsl:variable>
+
+      <xsl:element name="centreHz">
+        <xsl:value-of select="$centreHz"/>
+      </xsl:element>
+
+      <xsl:variable name="centreVt">
+        <xsl:value-of select="msxsl:node-set($centralArc)/endVt + (msxsl:node-set($centralArc)/centreVt - msxsl:node-set($centralArc)/endVt) * $radiusT div $radiusH"/>
+      </xsl:variable>
+
+      <xsl:element name="centreVt">
+        <xsl:value-of select="$centreVt"/>
+      </xsl:element>
+
+      <xsl:element name="radius">
+        <xsl:value-of select="$radiusT"/>
+      </xsl:element>
+
+      <xsl:variable name="endPt">
+        <xsl:call-template name="CalcArcEndPoint">
+          <xsl:with-param name="radius" select="$radiusT"/>
+          <xsl:with-param name="deltaAngle" select="$interpTransAngle * 180.0 div math:PI()"/>  <!-- Degrees value reqd -->
+          <xsl:with-param name="startHz" select="msxsl:node-set($interpB)/hz"/>
+          <xsl:with-param name="startVt" select="msxsl:node-set($interpB)/vt"/>
+          <xsl:with-param name="centreHz" select="$centreHz"/>
+          <xsl:with-param name="centreVt" select="$centreVt"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:element name="endHz">
+        <xsl:value-of select="msxsl:node-set($endPt)/horizOffset"/>
+      </xsl:element>
+
+      <xsl:element name="endVt">
+        <xsl:value-of select="msxsl:node-set($endPt)/vertOffset"/>
+      </xsl:element>
+
+      <xsl:element name="largeArc">
+        <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($lastArcIdx) - 1]/largeArc"/>
+      </xsl:element>
+
+      <xsl:element name="deltaAngle">
+        <xsl:value-of select="$interpTransAngle * 180.0 div math:PI()"/>  <!-- In degrees -->
+      </xsl:element>
+
+      <xsl:element name="length">
+        <xsl:value-of select="math:abs(number($radiusT * $interpTransAngle))"/>
+      </xsl:element>
+    </xsl:if>
+  </xsl:variable>
+
+  <!-- And finally build the last (wall) arc -->
+  <xsl:variable name="lastArc">
+    <xsl:choose>
+      <xsl:when test="$lastArcIdx - $firstArcIdx + 1 = 5"> <!-- There is a transition arc - join on to it -->
+        <xsl:element name="startHz">
+          <xsl:value-of select="msxsl:node-set($transArc2)/endHz"/>
+        </xsl:element>
+
+        <xsl:element name="startVt">
+          <xsl:value-of select="msxsl:node-set($transArc2)/endVt"/>
+        </xsl:element>
+
+        <xsl:variable name="centreHz">
+          <xsl:value-of select="msxsl:node-set($transArc2)/endHz + (msxsl:node-set($transArc2)/centreHz - msxsl:node-set($transArc2)/endHz) *
+                                $radiusV div $radiusT"/>
+        </xsl:variable>
+
+        <xsl:element name="centreHz">
+          <xsl:value-of select="$centreHz"/>
+        </xsl:element>
+
+        <xsl:variable name="centreVt">
+          <xsl:value-of select="msxsl:node-set($transArc2)/endVt + (msxsl:node-set($transArc2)/centreVt - msxsl:node-set($transArc2)/endVt) *
+                                $radiusV div $radiusT"/>
+        </xsl:variable>
+
+        <xsl:element name="centreVt">
+          <xsl:value-of select="$centreVt"/>
+        </xsl:element>
+
+        <xsl:variable name="endPt">
+          <xsl:call-template name="CalcArcEndPoint">
+            <xsl:with-param name="radius" select="$radiusV"/>
+            <xsl:with-param name="deltaAngle" select="($interpPhi + $extraAngleRight) * 180.0 div math:PI()"/>  <!-- Degrees value reqd -->
+            <xsl:with-param name="startHz" select="msxsl:node-set($transArc2)/endHz"/>
+            <xsl:with-param name="startVt" select="msxsl:node-set($transArc2)/endVt"/>
+            <xsl:with-param name="centreHz" select="$centreHz"/>
+            <xsl:with-param name="centreVt" select="$centreVt"/>
+          </xsl:call-template>
+        </xsl:variable>
+
+        <xsl:element name="endHz">
+          <xsl:value-of select="msxsl:node-set($endPt)/horizOffset"/>
+        </xsl:element>
+
+        <xsl:element name="endVt">
+          <xsl:value-of select="msxsl:node-set($endPt)/vertOffset"/>
+        </xsl:element>
+
+        <xsl:element name="radius">
+          <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($lastArcIdx)]/radius"/>
+        </xsl:element>
+
+        <xsl:element name="largeArc">
+          <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($lastArcIdx)]/largeArc"/>
+        </xsl:element>
+      </xsl:when>
+
+      <xsl:otherwise>  <!-- There is no transition arc - join on to central (roof) arc -->
+        <xsl:element name="startHz">
+          <xsl:value-of select="msxsl:node-set($interpB)/hz"/>
+        </xsl:element>
+
+        <xsl:element name="startVt">
+          <xsl:value-of select="msxsl:node-set($interpB)/vt"/>
+        </xsl:element>
+
+        <xsl:variable name="centreHz">
+          <xsl:value-of select="msxsl:node-set($centralArc)/endHz + (msxsl:node-set($centralArc)/centreHz - msxsl:node-set($centralArc)/endHz) *
+                                $radiusV div $radiusH"/>
+        </xsl:variable>
+
+        <xsl:element name="centreHz">
+          <xsl:value-of select="$centreHz"/>
+        </xsl:element>
+
+        <xsl:variable name="centreVt">
+          <xsl:value-of select="msxsl:node-set($centralArc)/endVt + (msxsl:node-set($centralArc)/centreVt - msxsl:node-set($centralArc)/endVt) *
+                                $radiusV div $radiusH"/>
+        </xsl:variable>
+
+        <xsl:element name="centreVt">
+          <xsl:value-of select="$centreVt"/>
+        </xsl:element>
+
+        <xsl:variable name="endPt">
+          <xsl:call-template name="CalcArcEndPoint">
+            <xsl:with-param name="radius" select="$radiusV"/>
+            <xsl:with-param name="deltaAngle" select="($interpPhi + $extraAngleRight) * 180.0 div math:PI()"/>  <!-- Degrees value reqd -->
+            <xsl:with-param name="startHz" select="msxsl:node-set($interpB)/hz"/>
+            <xsl:with-param name="startVt" select="msxsl:node-set($interpB)/vt"/>
+            <xsl:with-param name="centreHz" select="$centreHz"/>
+            <xsl:with-param name="centreVt" select="$centreVt"/>
+          </xsl:call-template>
+        </xsl:variable>
+
+        <xsl:element name="endHz">
+          <xsl:value-of select="msxsl:node-set($endPt)/horizOffset"/>
+        </xsl:element>
+
+        <xsl:element name="endVt">
+          <xsl:value-of select="msxsl:node-set($endPt)/vertOffset"/>
+        </xsl:element>
+
+        <xsl:element name="radius">
+          <xsl:value-of select="$radiusV"/>
+        </xsl:element>
+
+        <xsl:element name="largeArc">
+          <xsl:value-of select="msxsl:node-set($prevTemplateSurf)/element[number($lastArcIdx)]/largeArc"/>
+        </xsl:element>
+      </xsl:otherwise>
+    </xsl:choose>
+
+    <xsl:element name="deltaAngle">
+      <xsl:value-of select="($interpPhi + $extraAngleRight) * 180.0 div math:PI()"/>  <!-- In degrees -->
+    </xsl:element>
+
+    <xsl:element name="length">
+      <xsl:value-of select="math:abs(number($radiusV * ($interpPhi + $extraAngleRight)))"/>
+    </xsl:element>
+  </xsl:variable>
+
+  <!-- At this point the interpolated cross-section is lined up horizontally and vertically based on the    -->
+  <!-- interpolated positions of the A and B points.  It seems reasonable that the cross-sections should    -->
+  <!-- line up at the bottom so determine the vertical offset, if any, between the computed arc1 start      -->
+  <!-- point y value and interpStartY then apply it to the y values of the points defining the interpolated -->
+  <!-- cross-section.                                                                                       -->
+  <!-- However if the first (left) and last (right) arcs were not the same length (interpYvLeft and         -->
+  <!-- interpYvRight are not be equal) then skip this step as we do not have a level base to work from      -->
+  <xsl:variable name="compare" select="concat(substring('-',2 - (($interpYvLeft - $interpYvRight) &lt; 0)), '1') * ($interpYvLeft - $interpYvRight)"/>
+  <xsl:variable name="vertAdj">
+    <xsl:choose>
+      <xsl:when test="compare &lt; 0.005">
+        <xsl:value-of select="$interpStartVt - msxsl:node-set($firstArc)/startVt"/>
+      </xsl:when>
+      <xsl:otherwise>0</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <!-- Now create the section elements with the vertical adjustment applied -->
+  <xsl:element name="element">
+    <xsl:copy-of select="msxsl:node-set($firstArc)/startHz"/>
+    <xsl:element name="startVt">
+      <xsl:value-of select="msxsl:node-set($firstArc)/startVt + $vertAdj"/>
+    </xsl:element>
+    <xsl:copy-of select="msxsl:node-set($firstArc)/endHz"/>
+    <xsl:element name="endVt">
+      <xsl:value-of select="msxsl:node-set($firstArc)/endVt + $vertAdj"/>
+    </xsl:element>
+    <xsl:copy-of select="msxsl:node-set($firstArc)/radius"/>
+    <xsl:copy-of select="msxsl:node-set($firstArc)/largeArc"/>
+    <xsl:copy-of select="msxsl:node-set($firstArc)/centreHz"/>
+    <xsl:element name="centreVt">
+      <xsl:value-of select="msxsl:node-set($firstArc)/centreVt + $vertAdj"/>
+    </xsl:element>
+    <xsl:copy-of select="msxsl:node-set($firstArc)/deltaAngle"/>
+    <xsl:copy-of select="msxsl:node-set($firstArc)/length"/>
+  </xsl:element>
+
+  <xsl:if test="count(msxsl:node-set($transArc1)/*) != 0">  <!-- We have a transition arc -->
+    <xsl:element name="element">
+      <xsl:copy-of select="msxsl:node-set($transArc1)/startHz"/>
+      <xsl:element name="startVt">
+        <xsl:value-of select="msxsl:node-set($transArc1)/startVt + $vertAdj"/>
+      </xsl:element>
+      <xsl:copy-of select="msxsl:node-set($transArc1)/endHz"/>
+      <xsl:element name="endVt">
+        <xsl:value-of select="msxsl:node-set($transArc1)/endVt + $vertAdj"/>
+      </xsl:element>
+      <xsl:copy-of select="msxsl:node-set($transArc1)/radius"/>
+      <xsl:copy-of select="msxsl:node-set($transArc1)/largeArc"/>
+      <xsl:copy-of select="msxsl:node-set($transArc1)/centreHz"/>
+      <xsl:element name="centreVt">
+        <xsl:value-of select="msxsl:node-set($transArc1)/centreVt + $vertAdj"/>
+      </xsl:element>
+      <xsl:copy-of select="msxsl:node-set($transArc1)/deltaAngle"/>
+      <xsl:copy-of select="msxsl:node-set($transArc1)/length"/>
+    </xsl:element>
+  </xsl:if>
+
+  <xsl:element name="element">
+    <xsl:copy-of select="msxsl:node-set($centralArc)/startHz"/>
+    <xsl:element name="startVt">
+      <xsl:value-of select="msxsl:node-set($centralArc)/startVt + $vertAdj"/>
+    </xsl:element>
+    <xsl:copy-of select="msxsl:node-set($centralArc)/endHz"/>
+    <xsl:element name="endVt">
+      <xsl:value-of select="msxsl:node-set($centralArc)/endVt + $vertAdj"/>
+    </xsl:element>
+    <xsl:copy-of select="msxsl:node-set($centralArc)/radius"/>
+    <xsl:copy-of select="msxsl:node-set($centralArc)/largeArc"/>
+    <xsl:copy-of select="msxsl:node-set($centralArc)/centreHz"/>
+    <xsl:element name="centreVt">
+      <xsl:value-of select="msxsl:node-set($centralArc)/centreVt + $vertAdj"/>
+    </xsl:element>
+    <xsl:copy-of select="msxsl:node-set($centralArc)/deltaAngle"/>
+    <xsl:copy-of select="msxsl:node-set($centralArc)/length"/>
+  </xsl:element>
+
+  <xsl:if test="count(msxsl:node-set($transArc2)/*) != 0">  <!-- We have a transition arc -->
+    <xsl:element name="element">
+      <xsl:copy-of select="msxsl:node-set($transArc2)/startHz"/>
+      <xsl:element name="startVt">
+        <xsl:value-of select="msxsl:node-set($transArc2)/startVt + $vertAdj"/>
+      </xsl:element>
+      <xsl:copy-of select="msxsl:node-set($transArc2)/endHz"/>
+      <xsl:element name="endVt">
+        <xsl:value-of select="msxsl:node-set($transArc2)/endVt + $vertAdj"/>
+      </xsl:element>
+      <xsl:copy-of select="msxsl:node-set($transArc2)/radius"/>
+      <xsl:copy-of select="msxsl:node-set($transArc2)/largeArc"/>
+      <xsl:copy-of select="msxsl:node-set($transArc2)/centreHz"/>
+      <xsl:element name="centreVt">
+        <xsl:value-of select="msxsl:node-set($transArc2)/centreVt + $vertAdj"/>
+      </xsl:element>
+      <xsl:copy-of select="msxsl:node-set($transArc2)/deltaAngle"/>
+      <xsl:copy-of select="msxsl:node-set($transArc2)/length"/>
+    </xsl:element>
+  </xsl:if>
+
+  <xsl:element name="element">
+    <xsl:copy-of select="msxsl:node-set($lastArc)/startHz"/>
+    <xsl:element name="startVt">
+      <xsl:value-of select="msxsl:node-set($lastArc)/startVt + $vertAdj"/>
+    </xsl:element>
+    <xsl:copy-of select="msxsl:node-set($lastArc)/endHz"/>
+    <xsl:element name="endVt">
+      <xsl:value-of select="msxsl:node-set($lastArc)/endVt + $vertAdj"/>
+    </xsl:element>
+    <xsl:copy-of select="msxsl:node-set($lastArc)/radius"/>
+    <xsl:copy-of select="msxsl:node-set($lastArc)/largeArc"/>
+    <xsl:copy-of select="msxsl:node-set($lastArc)/centreHz"/>
+    <xsl:element name="centreVt">
+      <xsl:value-of select="msxsl:node-set($lastArc)/centreVt + $vertAdj"/>
+    </xsl:element>
+    <xsl:copy-of select="msxsl:node-set($lastArc)/deltaAngle"/>
+    <xsl:copy-of select="msxsl:node-set($lastArc)/length"/>
+  </xsl:element>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- **Integrate the Norwegian interp arcs with any other elements ** -->
+<!-- **************************************************************** -->
+<xsl:template name="AssembleCompleteNorwegianTemplate">
+  <xsl:param name="prevTemplateSurf"/>
+  <xsl:param name="nextTemplateSurf"/>
+  <xsl:param name="norwegianInterpArcs"/>
+  <xsl:param name="ratio"/>
+
+  <xsl:for-each select="msxsl:node-set($prevTemplateSurf)/element">
+    <xsl:variable name="posn" select="position()"/>
+    <xsl:choose>
+      <xsl:when test="radius">
+        <xsl:variable name="arcIndex" select="count(preceding-sibling::element[radius]) + 1"/>
+        <xsl:copy-of select="msxsl:node-set($norwegianInterpArcs)/element[$arcIndex]"/>
+      </xsl:when>
+
+      <xsl:otherwise>  <!-- This is a line element -->
+        <xsl:choose>
+          <xsl:when test="following-sibling::element[1]/radius">  <!-- next element is first arc - this line needs to end on the first arc's start point -->
+            <xsl:element name="element">
+              <xsl:variable name="startHz" select="startHz + (msxsl:node-set($nextTemplateSurf)/element[$posn]/startHz - startHz) * $ratio"/>
+              <xsl:element name="startHz">
+                <xsl:value-of select="$startHz"/>
+              </xsl:element>
+
+              <xsl:variable name="startVt" select="startVt + (msxsl:node-set($nextTemplateSurf)/element[$posn]/startVt - startVt) * $ratio"/>
+              <xsl:element name="startVt">
+                <xsl:value-of select="$startVt"/>
+              </xsl:element>
+
+              <xsl:element name="endHz">
+                <xsl:value-of select="msxsl:node-set($norwegianInterpArcs)/element[1]/startHz"/>
+              </xsl:element>
+
+              <xsl:element name="endVt">
+                <xsl:value-of select="msxsl:node-set($norwegianInterpArcs)/element[1]/startVt"/>
+              </xsl:element>
+
+              <xsl:element name="length">
+                <xsl:call-template name="InverseDistance">
+                  <xsl:with-param name="deltaN" select="$startVt - msxsl:node-set($norwegianInterpArcs)/element[1]/startVt"/>
+                  <xsl:with-param name="deltaE" select="$startHz - msxsl:node-set($norwegianInterpArcs)/element[1]/startHz"/>
+                </xsl:call-template>
+              </xsl:element>
+            </xsl:element>
+          </xsl:when>
+
+          <xsl:when test="preceding-sibling::element[1]/radius">  <!-- previous element is last arc - this line needs to start on the last arc's end point -->
+            <xsl:element name="element">
+              <xsl:element name="startHz">
+                <xsl:value-of select="msxsl:node-set($norwegianInterpArcs)/element[last()]/endHz"/>
+              </xsl:element>
+
+              <xsl:element name="startVt">
+                <xsl:value-of select="msxsl:node-set($norwegianInterpArcs)/element[last()]/endVt"/>
+              </xsl:element>
+
+              <xsl:variable name="endHz" select="endHz + (msxsl:node-set($nextTemplateSurf)/element[$posn]/endHz - endHz) * $ratio"/>
+              <xsl:element name="endHz">
+                <xsl:value-of select="$endHz"/>
+              </xsl:element>
+
+              <xsl:variable name="endVt" select="endVt + (msxsl:node-set($nextTemplateSurf)/element[$posn]/endVt - endVt) * $ratio"/>
+              <xsl:element name="endVt">
+                <xsl:value-of select="$endVt"/>
+              </xsl:element>
+
+              <xsl:element name="length">
+                <xsl:call-template name="InverseDistance">
+                  <xsl:with-param name="deltaN" select="msxsl:node-set($norwegianInterpArcs)/element[last()]/endVt - $endVt"/>
+                  <xsl:with-param name="deltaE" select="msxsl:node-set($norwegianInterpArcs)/element[last()]/endHz - $endHz"/>
+                </xsl:call-template>
+              </xsl:element>
+            </xsl:element>
+          </xsl:when>
+
+          <xsl:otherwise>   <!-- Standard line interpolation -->
+            <xsl:element name="element">
+              <xsl:variable name="startHz" select="startHz + (msxsl:node-set($nextTemplateSurf)/element[$posn]/startHz - startHz) * $ratio"/>
+              <xsl:element name="startHz">
+                <xsl:value-of select="$startHz"/>
+              </xsl:element>
+
+              <xsl:variable name="startVt" select="startVt + (msxsl:node-set($nextTemplateSurf)/element[$posn]/startVt - startVt) * $ratio"/>
+              <xsl:element name="startVt">
+                <xsl:value-of select="$startVt"/>
+              </xsl:element>
+
+              <xsl:variable name="endHz" select="endHz + (msxsl:node-set($nextTemplateSurf)/element[$posn]/endHz - endHz) * $ratio"/>
+              <xsl:element name="endHz">
+                <xsl:value-of select="$endHz"/>
+              </xsl:element>
+
+              <xsl:variable name="endVt" select="endVt + (msxsl:node-set($nextTemplateSurf)/element[$posn]/endVt - endVt) * $ratio"/>
+              <xsl:element name="endVt">
+                <xsl:value-of select="$endVt"/>
+              </xsl:element>
+
+              <xsl:element name="length">
+                <xsl:call-template name="InverseDistance">
+                  <xsl:with-param name="deltaN" select="$startVt - $endVt"/>
+                  <xsl:with-param name="deltaE" select="$startHz - $endHz"/>
+                </xsl:call-template>
+              </xsl:element>
+            </xsl:element>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:otherwise>
+    </xsl:choose>
+    <xsl:copy-of select="code"/>
+  </xsl:for-each>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ****************** Compute the scribed angle ******************* -->
+<!-- **************************************************************** -->
+<xsl:template name="ScribedAngle">
+  <xsl:param name="startHz"/>
+  <xsl:param name="startVt"/>
+  <xsl:param name="endHz"/>
+  <xsl:param name="endVt"/>
+  <xsl:param name="centreHz"/>
+  <xsl:param name="centreVt"/>
+
+  <xsl:variable name="startDir">
+    <xsl:call-template name="InverseAzimuth">
+      <xsl:with-param name="deltaN" select="$startVt - $centreVt"/>
+      <xsl:with-param name="deltaE" select="$startHz - $centreHz"/>
+      <xsl:with-param name="returnInRadians">true</xsl:with-param>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="endDir">
+    <xsl:call-template name="InverseAzimuth">
+      <xsl:with-param name="deltaN" select="$endVt - $centreVt"/>
+      <xsl:with-param name="deltaE" select="$endHz - $centreHz"/>
+      <xsl:with-param name="returnInRadians">true</xsl:with-param>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:choose>
+    <xsl:when test="$startDir &lt; $endDir">  <!-- Regular clockwise arc -->
+      <xsl:value-of select="$endDir - $startDir"/>
+    </xsl:when>
+    <xsl:otherwise>  <!-- This arc is cutting the 0 axis -->
+      <xsl:value-of select="$endDir + (math:PI() * 2.0 - $startDir)"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Check if 2 templates have the same elements ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="TemplatesAreEquivalent">
+  <xsl:param name="prevTemplate"/>
+  <xsl:param name="nextTemplate"/>
+
+  <xsl:variable name="testVar">
+    <xsl:for-each select="msxsl:node-set($prevTemplate)/templateSurface">
+      <xsl:variable name="surfaceName" select="@name"/>
+      <xsl:for-each select="element">
+        <xsl:variable name="posn" select="position()"/>
+        <xsl:if test=". != msxsl:node-set($nextTemplate)/templateSurface[@name = $surfaceName]/element[number($posn)]">x</xsl:if>
+      </xsl:for-each>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:choose>
+    <xsl:when test="$testVar = ''">true</xsl:when>
+    <xsl:otherwise>false</xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******* Return the template name for the current station ******* -->
+<!-- **************************************************************** -->
+<xsl:template name="GetTemplateNames">
+  <xsl:param name="station"/>
+
+  <!-- Returns a node set with the following elements: -->
+  <!--   <prevTemplateName> -->
+  <!--   <prevTemplateStation> -->
+  <!--   <prevTemplateSurfaces> -->
+  <!--   <nextTemplateName> -->
+  <!--   <nextTemplateStation> -->
+  <!--   <nextTemplateSurfaces> -->
+
+  <xsl:element name="prevTemplateName">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplatePositioning/ApplyTemplate[$station &gt;= Station][last()]/Name"/>
+  </xsl:element>
+
+  <xsl:element name="prevTemplateStation">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplatePositioning/ApplyTemplate[$station &gt;= Station][last()]/Station"/>
+  </xsl:element>
+
+  <xsl:element name="prevTemplateSurfaces">
+    <xsl:choose>
+      <xsl:when test="count(msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplatePositioning/ApplyTemplate[$station &gt;= Station][last()]/Surface) != 0">
+        <xsl:copy-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplatePositioning/ApplyTemplate[$station &gt;= Station][last()]/Surface"/>
+      </xsl:when>
+      <xsl:otherwise>  <!-- TunnelXML file prior to multiple surfaces - set up default surface -->
+        <xsl:element name="Surface" namespace="">
+          <xsl:element name="Name" namespace="">DefaultXSLSurface</xsl:element>
+          <xsl:element name="Used" namespace="">true</xsl:element>
+        </xsl:element>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:element>
+
+  <xsl:element name="nextTemplateName">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplatePositioning/ApplyTemplate[$station &lt;= Station][1]/Name"/>
+  </xsl:element>
+
+  <xsl:element name="nextTemplateStation">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplatePositioning/ApplyTemplate[$station &lt;= Station][1]/Station"/>
+  </xsl:element>
+
+  <xsl:element name="nextTemplateSurfaces">
+    <xsl:choose>
+      <xsl:when test="count(msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplatePositioning/ApplyTemplate[$station &lt;= Station][1]/Surface) != 0">
+        <xsl:copy-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/TemplatePositioning/ApplyTemplate[$station &lt;= Station][1]/Surface"/>
+      </xsl:when>
+      <xsl:otherwise>  <!-- TunnelXML file prior to multiple surfaces - set up default surface -->
+        <xsl:element name="Surface" namespace="">
+          <xsl:element name="Name" namespace="">DefaultXSLSurface</xsl:element>
+          <xsl:element name="Used" namespace="">true</xsl:element>
+        </xsl:element>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:element>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *** Return template rotation details for the current station *** -->
+<!-- **************************************************************** -->
+<xsl:template name="GetTemplateRotationValues">
+  <xsl:param name="station"/>
+
+  <!-- Returns a node set with the following elements: -->
+  <!--   <rotationAngle> holds interpolated rotation angle in radians (converted from percentage grade) -->
+  <!--   <hzOrigin> holds interpolated rotation origin point horizontal value -->
+  <!--   <vtOrigin> holds interpolated rotation origin point vertical value -->
+
+  <xsl:variable name="prevRotationVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/Rotations/ApplyRotation[$station &gt;= Station][last()]/Rotation"/>
+  </xsl:variable>
+
+  <xsl:variable name="prevStationVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/Rotations/ApplyRotation[$station &gt;= Station][last()]/Station"/>
+  </xsl:variable>
+
+  <xsl:variable name="prevHzOffsetVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/Rotations/ApplyRotation[$station &gt;= Station][last()]/HorizontalOffset"/>
+  </xsl:variable>
+
+  <xsl:variable name="prevVtOffsetVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/Rotations/ApplyRotation[$station &gt;= Station][last()]/VerticalOffset"/>
+  </xsl:variable>
+
+  <xsl:variable name="nextRotationVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/Rotations/ApplyRotation[$station &lt;= Station][1]/Rotation"/>
+  </xsl:variable>
+
+  <xsl:variable name="nextStationVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/Rotations/ApplyRotation[$station &lt;= Station][1]/Station"/>
+  </xsl:variable>
+
+  <xsl:variable name="nextHzOffsetVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/Rotations/ApplyRotation[$station &lt;= Station][1]/HorizontalOffset"/>
+  </xsl:variable>
+
+  <xsl:variable name="nextVtOffsetVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/Rotations/ApplyRotation[$station &lt;= Station][1]/VerticalOffset"/>
+  </xsl:variable>
+
+  <xsl:choose>
+    <!-- If any of the previous ApplyRotation element values cannot be determined we must -->
+    <!-- have a station prior to the first ApplyRotation element so set the rotationAngle -->
+    <!-- hzOrigin and vtOrigin elements to 0.                                             -->
+    <xsl:when test="(string(number($prevRotationVal)) = 'NaN') or (string(number($prevStationVal)) = 'NaN') or
+                    (string(number($prevHzOffsetVal)) = 'NaN') or (string(number($prevVtOffsetVal)) = 'NaN')">
+      <xsl:element name="rotationAngle">0</xsl:element>
+      <xsl:element name="hzOrigin">0</xsl:element>
+      <xsl:element name="vtOrigin">0</xsl:element>
+    </xsl:when>
+
+    <!-- If any of the next ApplyRotation element values cannot be determined we must have -->
+    <!-- a station after the last ApplyRotation element so set the rotationAngle, hzOrigin -->
+    <!-- and vtOrigin element values to those of the previous ApplyRotation element.  If   -->
+    <!-- the previous and next stations are the same just return the prev values.          -->
+    <xsl:when test="(string(number($nextRotationVal)) = 'NaN') or (string(number($nextStationVal)) = 'NaN') or
+                    (string(number($nextHzOffsetVal)) = 'NaN') or (string(number($nextVtOffsetVal)) = 'NaN') or
+                    ($prevStationVal = $nextStationVal)">
+      <xsl:element name="rotationAngle">
+        <!-- Convert from percentage grade value to angle in radians - change the sign to get a clockwise rotation -->
+        <xsl:value-of select="math:atan(number($prevRotationVal) div -100)"/>
+      </xsl:element>
+      <xsl:element name="hzOrigin">
+        <xsl:value-of select="$prevHzOffsetVal"/>
+      </xsl:element>
+      <xsl:element name="vtOrigin">
+        <xsl:value-of select="$prevVtOffsetVal"/>
+      </xsl:element>
+    </xsl:when>
+
+    <xsl:otherwise>
+      <!-- We need to interpolate the rotation, hzOrigin and vtOrigin values -->
+      <xsl:variable name="rotation" select="$prevRotationVal + ($station - $prevStationVal) div ($nextStationVal - $prevStationVal) * ($nextRotationVal - $prevRotationVal)"/>
+      <xsl:element name="rotationAngle">
+        <!-- Convert from interpolated percentage grade value to angle in radians - change the sign to get a clockwise rotation -->
+        <xsl:value-of select="math:atan(number($rotation) div -100)"/>
+      </xsl:element>
+      <xsl:element name="hzOrigin">
+        <xsl:value-of select="$prevHzOffsetVal + ($station - $prevStationVal) div ($nextStationVal - $prevStationVal) * ($nextHzOffsetVal - $prevHzOffsetVal)"/>
+      </xsl:element>
+      <xsl:element name="vtOrigin">
+        <xsl:value-of select="$prevVtOffsetVal + ($station - $prevStationVal) div ($nextStationVal - $prevStationVal) * ($nextVtOffsetVal - $prevVtOffsetVal)"/>
+      </xsl:element>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- **** Return template offset values for the current station ***** -->
+<!-- **************************************************************** -->
+<xsl:template name="GetTemplateOffsetValues">
+  <xsl:param name="station"/>
+
+  <!-- Returns a node set with the following elements: -->
+  <!--   <hzOffset> holds interpolated horizontal alignment offset value -->
+  <!--   <vtOffset> holds interpolated vertical alignment offset value -->
+
+  <xsl:variable name="prevStationVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/AlignmentOffsets/ApplyOffsets[$station &gt;= Station][last()]/Station"/>
+  </xsl:variable>
+
+  <xsl:variable name="prevHzOffsetVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/AlignmentOffsets/ApplyOffsets[$station &gt;= Station][last()]/HorizontalOffset"/>
+  </xsl:variable>
+
+  <xsl:variable name="prevVtOffsetVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/AlignmentOffsets/ApplyOffsets[$station &gt;= Station][last()]/VerticalOffset"/>
+  </xsl:variable>
+
+  <xsl:variable name="nextStationVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/AlignmentOffsets/ApplyOffsets[$station &lt;= Station][1]/Station"/>
+  </xsl:variable>
+
+  <xsl:variable name="nextHzOffsetVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/AlignmentOffsets/ApplyOffsets[$station &lt;= Station][1]/HorizontalOffset"/>
+  </xsl:variable>
+
+  <xsl:variable name="nextVtOffsetVal">
+    <xsl:value-of select="msxsl:node-set($tunnelDefinition)/TrimbleTunnel/AlignmentOffsets/ApplyOffsets[$station &lt;= Station][1]/VerticalOffset"/>
+  </xsl:variable>
+
+  <xsl:choose>
+    <!-- If any of the previous ApplyOffsets element values cannot be determined we must  -->
+    <!-- have a station prior to the first ApplyOffsets element so set the hzOffset and   -->
+    <!-- vtOffset elements to 0.                                                          -->
+    <xsl:when test="(string(number($prevStationVal)) = 'NaN') or
+                    (string(number($prevHzOffsetVal)) = 'NaN') or (string(number($prevVtOffsetVal)) = 'NaN')">
+      <xsl:element name="hzOffset">0</xsl:element>
+      <xsl:element name="vtOffset">0</xsl:element>
+    </xsl:when>
+
+    <!-- If any of the next ApplyOffsets element values cannot be determined we must have -->
+    <!-- a station after the last ApplyOffsets element so set the hzOffset and vtOffset   -->
+    <!-- element values to those of the previous ApplyOffsets element.  If the previous   -->
+    <!-- and next stations are the same just return the prev values.                      -->
+    <xsl:when test="(string(number($nextStationVal)) = 'NaN') or (string(number($nextHzOffsetVal)) = 'NaN') or
+                    (string(number($nextVtOffsetVal)) = 'NaN') or ($prevStationVal = $nextStationVal)">
+      <xsl:element name="hzOffset">
+        <xsl:value-of select="$prevHzOffsetVal"/>
+      </xsl:element>
+      <xsl:element name="vtOffset">
+        <xsl:value-of select="$prevVtOffsetVal"/>
+      </xsl:element>
+    </xsl:when>
+
+    <xsl:otherwise>
+      <!-- We need to interpolate the hzOffset and vtOffset values -->
+      <xsl:element name="hzOffset">
+        <xsl:value-of select="$prevHzOffsetVal + ($station - $prevStationVal) div ($nextStationVal - $prevStationVal) * ($nextHzOffsetVal - $prevHzOffsetVal)"/>
+      </xsl:element>
+      <xsl:element name="vtOffset">
+        <xsl:value-of select="$prevVtOffsetVal + ($station - $prevStationVal) div ($nextStationVal - $prevStationVal) * ($nextVtOffsetVal - $prevVtOffsetVal)"/>
+      </xsl:element>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ****** Return angle normalised between -Pi and Pi radians ****** -->
+<!-- **************************************************************** -->
+<xsl:template name="NormalisedAngleBetweenPlusMinusPi">
+  <xsl:param name="inAngle"/>
+
+  <xsl:choose>
+    <xsl:when test="$inAngle &lt; math:PI() * -1.0">
+      <xsl:call-template name="NormalisedAngleBetweenPlusMinusPi">
+        <xsl:with-param name="inAngle" select="$inAngle + 2.0 * math:PI()"/>
+      </xsl:call-template>
+    </xsl:when>
+
+    <xsl:when test="$inAngle &gt; math:PI()">
+      <xsl:call-template name="NormalisedAngleBetweenPlusMinusPi">
+        <xsl:with-param name="inAngle" select="$inAngle - math:PI() * 2.0"/>
+      </xsl:call-template>
+    </xsl:when>
+
+    <xsl:otherwise>
+      <xsl:value-of select="$inAngle"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Returns clockwise angle between 2 directions ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="RadiansClockwiseAngle">
+  <xsl:param name="fromDir"/>    <!-- Directions in radians -->
+  <xsl:param name="toDir"/>
+
+  <!-- returns the angle from the fromDir direction to the toDir direction in clockwise direction -->
+  <xsl:choose>
+    <xsl:when test="(string(number($fromDir)) = 'NaN') or (string(number($toDir)) = 'NaN')"/>
+    <xsl:otherwise>
+      <xsl:variable name="tempAngle" select="$toDir - $fromDir"/>
+
+      <xsl:call-template name="RadianAngleBetweenLimits">
+        <xsl:with-param name="anAngle" select="$tempAngle"/>
+      </xsl:call-template>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Follow Direction to Compute New Point Coords ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="FollowDirection">
+  <xsl:param name="direction"/>
+  <xsl:param name="distance"/>
+  <xsl:param name="startVt"/>
+  <xsl:param name="startHz"/>
+
+  <xsl:element name="vertOffset">
+    <xsl:value-of select="$startVt + math:cos(number($direction)) * $distance"/>
+  </xsl:element>
+
+  <xsl:element name="horizOffset">
+    <xsl:value-of select="$startHz + math:sin(number($direction)) * $distance"/>
+  </xsl:element>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *************** Compute rectangle corner points **************** -->
+<!-- **************************************************************** -->
+<xsl:template name="ComputeRectangleCoords">
+  <xsl:param name="centreX"/>
+  <xsl:param name="centreY"/>
+  <xsl:param name="dirn"/>
+  <xsl:param name="textHeight"/>
+  <xsl:param name="textWidth"/>
+
+  <xsl:variable name="tempEnd1">
+    <xsl:call-template name="FollowDirection">
+      <xsl:with-param name="direction" select="$dirn"/>
+      <xsl:with-param name="distance" select="$textWidth div 2"/>
+      <xsl:with-param name="startVt" select="$centreY"/>
+      <xsl:with-param name="startHz" select="$centreX"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="tempEnd2">
+    <xsl:call-template name="FollowDirection">
+      <xsl:with-param name="direction" select="$dirn + math:PI()"/>
+      <xsl:with-param name="distance" select="$textWidth div 2"/>
+      <xsl:with-param name="startVt" select="$centreY"/>
+      <xsl:with-param name="startHz" select="$centreX"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="vertex1">
+    <xsl:call-template name="FollowDirection">
+      <xsl:with-param name="direction" select="$dirn - math:PI() div 2"/>
+      <xsl:with-param name="distance" select="$textHeight div 2"/>
+      <xsl:with-param name="startVt" select="msxsl:node-set($tempEnd1)/vertOffset"/>
+      <xsl:with-param name="startHz" select="msxsl:node-set($tempEnd1)/horizOffset"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:element name="vertex">
+    <xsl:element name="x">
+      <xsl:value-of select="msxsl:node-set($vertex1)/horizOffset"/>
+    </xsl:element>
+    <xsl:element name="y">
+      <xsl:value-of select="msxsl:node-set($vertex1)/vertOffset"/>
+    </xsl:element>
+  </xsl:element>
+
+  <xsl:variable name="vertex2">
+    <xsl:call-template name="FollowDirection">
+      <xsl:with-param name="direction" select="$dirn + math:PI() div 2"/>
+      <xsl:with-param name="distance" select="$textHeight div 2"/>
+      <xsl:with-param name="startVt" select="msxsl:node-set($tempEnd1)/vertOffset"/>
+      <xsl:with-param name="startHz" select="msxsl:node-set($tempEnd1)/horizOffset"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:element name="vertex">
+    <xsl:element name="x">
+      <xsl:value-of select="msxsl:node-set($vertex2)/horizOffset"/>
+    </xsl:element>
+    <xsl:element name="y">
+      <xsl:value-of select="msxsl:node-set($vertex2)/vertOffset"/>
+    </xsl:element>
+  </xsl:element>
+
+  <xsl:variable name="vertex3">
+    <xsl:call-template name="FollowDirection">
+      <xsl:with-param name="direction" select="$dirn + math:PI() div 2"/>
+      <xsl:with-param name="distance" select="$textHeight div 2"/>
+      <xsl:with-param name="startVt" select="msxsl:node-set($tempEnd2)/vertOffset"/>
+      <xsl:with-param name="startHz" select="msxsl:node-set($tempEnd2)/horizOffset"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:element name="vertex">
+    <xsl:element name="x">
+      <xsl:value-of select="msxsl:node-set($vertex3)/horizOffset"/>
+    </xsl:element>
+    <xsl:element name="y">
+      <xsl:value-of select="msxsl:node-set($vertex3)/vertOffset"/>
+    </xsl:element>
+  </xsl:element>
+
+  <xsl:variable name="vertex4">
+    <xsl:call-template name="FollowDirection">
+      <xsl:with-param name="direction" select="$dirn - math:PI() div 2"/>
+      <xsl:with-param name="distance" select="$textHeight div 2"/>
+      <xsl:with-param name="startVt" select="msxsl:node-set($tempEnd2)/vertOffset"/>
+      <xsl:with-param name="startHz" select="msxsl:node-set($tempEnd2)/horizOffset"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:element name="vertex">
+    <xsl:element name="x">
+      <xsl:value-of select="msxsl:node-set($vertex4)/horizOffset"/>
+    </xsl:element>
+    <xsl:element name="y">
+      <xsl:value-of select="msxsl:node-set($vertex4)/vertOffset"/>
+    </xsl:element>
+  </xsl:element>
+</xsl:template>
+
+
+</xsl:stylesheet>

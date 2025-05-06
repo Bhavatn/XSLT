@@ -1,0 +1,700 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:msxsl="urn:schemas-microsoft-com:xslt"
+    xmlns:math="urn:schemas-microsoft-com:JavaScript">
+
+<!-- Functions available in this style sheet: -->
+<!--   ParabolaPointElevation - returns the elevation of a point on a parabolic vertical curve -->
+<!--   CircularVertCurvePointElevation - returns the elevation of a point on a circular vertical curve -->
+<!--   SagSummitPointParabola - returns the sag/summit point of a parabolic vertical curve -->
+<!--   ComputedVertAngleFromGrade (used by the CircVertCurveInOutLen and CircVertCurveCentrePoint routines) -->
+<!--   CircVertCurveInOutLen - returns the computed in/out circular vertical curve length -->
+<!--   CircVertCurveCentrePoint - returns the centre point for a circular vertical curve -->
+<!--   SagSummitPointCircularVC - returns the sag/summit point of a circular vertical curve -->
+<!--   ElevationAtStation - returns the elevation at a given station on the profile -->
+<!--   ParabolaGradeAtStationAsPercentage - returns the grade at a given station on a parabola -->
+<!--   GradeAtStationAsPercentage - returns the grade at a given station on the profile -->
+
+<!-- **************************************************************** -->
+<!-- ********* Return The Elevation Of A Point On A Parabola ******** -->
+<!-- **************************************************************** -->
+<xsl:template name="ParabolaPointElevation">
+  <xsl:param name="stationIP"/>
+  <xsl:param name="gradeIn"/>
+  <xsl:param name="gradeOut"/>
+  <xsl:param name="startStn"/>
+  <xsl:param name="endStn"/>
+  <xsl:param name="startElev"/>
+  <xsl:param name="endElev"/>
+  <xsl:param name="lenIn"/>
+  <xsl:param name="lenOut"/>
+  <xsl:param name="ptStn"/>
+
+  <xsl:variable name="aOne">
+    <xsl:choose>
+      <xsl:when test="$lenIn + $lenOut &gt; 0.0">
+        <xsl:value-of select="($gradeOut - $gradeIn) * $lenOut div ($lenIn + $lenOut)"/>
+      </xsl:when>
+      <xsl:otherwise>0.0</xsl:otherwise>  <!-- avoid divide by zero -->
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="aTwo">
+    <xsl:choose>
+      <xsl:when test="$lenIn + $lenOut &gt; 0.0">
+        <xsl:value-of select="($gradeOut - $gradeIn) * $lenIn div ($lenIn + $lenOut)"/>
+      </xsl:when>
+      <xsl:otherwise>0.0</xsl:otherwise>  <!-- avoid divide by zero -->
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="xE" select="$ptStn - $startStn"/>
+  <xsl:variable name="xX" select="$ptStn - $endStn"/>
+
+  <xsl:choose>
+    <xsl:when test="$ptStn &lt; $stationIP">
+      <xsl:choose>
+        <xsl:when test="$lenIn != 0.0">
+          <xsl:value-of select="$startElev + $gradeIn * $xE + $aOne * $xE * $xE div (2.0 * $lenIn)"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$startElev + $gradeIn * $xE"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+
+    <xsl:otherwise>
+      <xsl:choose>
+        <xsl:when test="$lenOut != 0.0">
+          <xsl:value-of select="$endElev + $gradeOut * $xX + $aTwo * $xX * $xX div (2.0 * $lenOut)"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$endElev + $gradeOut * $xX"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *** Return The Elevation Of A Point On A Circular Vert Curve *** -->
+<!-- **************************************************************** -->
+<xsl:template name="CircularVertCurvePointElevation">
+  <xsl:param name="centreStn"/>
+  <xsl:param name="centreElev"/>
+  <xsl:param name="intersectElev"/>
+  <xsl:param name="radius"/>
+  <xsl:param name="ptStn"/>
+
+  <xsl:variable name="dist" select="$ptStn - $centreStn"/>
+
+  <xsl:variable name="deltaElev" select="math:sqrt(number($radius * $radius - $dist * $dist))"/>
+
+  <xsl:choose>
+    <xsl:when test="$intersectElev &lt; $centreElev">
+      <xsl:value-of select="$centreElev - $deltaElev"/>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="$centreElev + $deltaElev"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ** Return The Sag/Summit Point For A Parabolic Vertical Curve ** -->
+<!-- **************************************************************** -->
+<xsl:template name="SagSummitPointParabola">
+  <xsl:param name="stationIP"/>
+  <xsl:param name="gradeIn"/>
+  <xsl:param name="gradeOut"/>
+  <xsl:param name="startStn"/>
+  <xsl:param name="endStn"/>
+  <xsl:param name="startElev"/>
+  <xsl:param name="endElev"/>
+
+  <!-- Returns a node set variable with the following elements: -->
+  <!--   sagSummitStn  - station value   -->
+  <!--   sagSummitElev - elevation value -->
+
+  <xsl:variable name="curveLen" select="$endStn - $startStn"/>
+  <xsl:variable name="lenIn" select="$stationIP - $startStn"/>
+  <xsl:variable name="lenOut" select="$endStn - $stationIP"/>
+  
+  <xsl:variable name="sagSummitStn">
+    <xsl:choose>
+      <xsl:when test="$lenIn = $lenOut"> <!-- Symmetric vertical curve -->
+        <xsl:value-of select="$startStn - $curveLen * ($gradeIn div ($gradeOut - $gradeIn))"/>
+      </xsl:when>
+
+      <xsl:when test="$lenIn != $lenOut">  <!-- Asymmetric vertical curve -->
+        <xsl:variable name="symCurveLen">
+          <xsl:value-of select="($lenIn + $lenOut) * ($lenIn div $lenOut)"/>
+        </xsl:variable>
+
+        <xsl:variable name="tempStnSagSum">
+          <xsl:value-of select="$startStn - $symCurveLen * ($gradeIn div ($gradeOut - $gradeIn))"/>
+        </xsl:variable>
+
+        <!-- Is SagSummit station in the entry or exit curve? -->
+        <xsl:choose>
+          <xsl:when test="$tempStnSagSum &gt; $stationIP">
+            <xsl:variable name="newSymCurveLen">
+              <xsl:value-of select="($lenIn + $lenOut) * ($lenOut div $lenIn)"/>
+            </xsl:variable>
+
+            <xsl:value-of select="$endStn - $newSymCurveLen * ($gradeOut div ($gradeOut - $gradeIn))"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="$tempStnSagSum"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:when>
+    </xsl:choose>
+  </xsl:variable>
+  
+  <!-- If the computed sag/summit station is outside the range of the vertical curve return an empty string -->
+  <xsl:if test="($sagSummitStn &lt;= $endStn) and ($sagSummitStn &gt;= $startStn)">
+    <xsl:variable name="sagSummitElev">
+      <xsl:call-template name="ParabolaPointElevation">
+        <xsl:with-param name="stationIP" select="$stationIP"/>
+        <xsl:with-param name="gradeIn" select="$gradeIn"/>
+        <xsl:with-param name="gradeOut" select="$gradeOut"/>
+        <xsl:with-param name="startStn" select="$startStn"/>
+        <xsl:with-param name="endStn" select="$endStn"/>
+        <xsl:with-param name="startElev" select="$startElev"/>
+        <xsl:with-param name="endElev" select="$endElev"/>
+        <xsl:with-param name="lenIn" select="$lenIn"/>
+        <xsl:with-param name="lenOut" select="$lenOut"/>
+        <xsl:with-param name="ptStn" select="$sagSummitStn"/>
+      </xsl:call-template>
+    </xsl:variable>
+      
+    <xsl:element name="sagSummitStn" namespace="">
+      <xsl:value-of select="$sagSummitStn"/>
+    </xsl:element>
+
+    <xsl:element name="sagSummitElev" namespace="">
+      <xsl:value-of select="$sagSummitElev"/>
+    </xsl:element>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Return vertical angle computed from grade *********** -->
+<!-- **************************************************************** -->
+<xsl:template name="ComputedVertAngleFromGrade">
+  <xsl:param name="grade"/>
+  
+  <!-- Compute the vertical angle turned from vertically up -->
+  <xsl:value-of select="math:PI() div 2.0 - math:atan(number($grade))"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ****** Return In/Out Length For A Circular Vertical Curve ****** -->
+<!-- **************************************************************** -->
+<xsl:template name="CircVertCurveInOutLen">
+  <xsl:param name="gradeIn"/>
+  <xsl:param name="gradeOut"/>
+  <xsl:param name="radius"/>
+  <xsl:param name="returnInLen"/>
+  
+  <xsl:variable name="inVertAngle">
+    <xsl:call-template name="ComputedVertAngleFromGrade">
+      <xsl:with-param name="grade" select="$gradeIn"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="outVertAngle">
+    <xsl:call-template name="ComputedVertAngleFromGrade">
+      <xsl:with-param name="grade" select="$gradeOut"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:choose>
+    <xsl:when test="math:abs(number($inVertAngle - $outVertAngle)) &lt; 0.000001">0</xsl:when> <!-- No significant change in grade - return length of 0 -->
+    <xsl:otherwise>
+      <xsl:variable name="includedAngle" select="math:PI() - ($inVertAngle - $outVertAngle)"/>
+      <xsl:variable name="tanLength" select="math:abs(number($radius) div math:tan(number($includedAngle div 2.0)))"/>
+
+      <xsl:choose>
+        <xsl:when test="$returnInLen = 'true'"> <!-- The in length is required -->
+          <xsl:value-of select="$tanLength * math:sin(number($inVertAngle))"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$tanLength * math:sin(number($outVertAngle))"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******** Return The Circular Vertical Curve Centre Point ******* -->
+<!-- **************************************************************** -->
+<xsl:template name="CircVertCurveCentrePoint">
+  <xsl:param name="gradeIn"/>
+  <xsl:param name="gradeOut"/>
+  <xsl:param name="radius"/>
+  <xsl:param name="stationIP"/>
+  <xsl:param name="startElev"/>
+  
+  <!-- Returns a node set variable with the following elements: -->
+  <!--   centreStn  - station value   -->
+  <!--   centreElev - elevation value -->
+
+  <xsl:variable name="inVertAngle">
+    <xsl:call-template name="ComputedVertAngleFromGrade">
+      <xsl:with-param name="grade" select="$gradeIn"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="outVertAngle">
+    <xsl:call-template name="ComputedVertAngleFromGrade">
+      <xsl:with-param name="grade" select="$gradeOut"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:if test="math:abs(number($inVertAngle - $outVertAngle)) &gt; 0.000001"> <!-- Significant change in grade - return values -->
+    <xsl:variable name="includedAngle" select="math:PI() - ($inVertAngle - $outVertAngle)"/>
+    <xsl:variable name="tanLength" select="math:abs(number($radius) div math:tan(number($includedAngle div 2.0)))"/>
+
+    <!-- Centre is to the left (before) of the intersection point if the absolute -->
+    <!-- value of the in grade is less than the absolute value of the out grade.  -->
+    <xsl:variable name="absInAngle" select="math:abs(math:PI() div 2.0 - number($inVertAngle))"/>
+    <xsl:variable name="absOutAngle" select="math:abs(math:PI() div 2.0 - number($outVertAngle))"/>
+    <xsl:variable name="absCosMeanAngle" select="math:abs(math:cos(number(($inVertAngle + $outVertAngle) div 2.0)))"/>
+    <xsl:variable name="hypotenuse" select="math:sqrt(number($radius * $radius + $tanLength * $tanLength))"/>
+
+    <xsl:variable name="centreStation">
+      <xsl:choose>
+        <xsl:when test="$absInAngle &lt; $absOutAngle"> <!-- Left of centre -->
+          <xsl:value-of select="$stationIP - $hypotenuse * $absCosMeanAngle"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$stationIP + $hypotenuse * $absCosMeanAngle"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+    
+    <!-- The Centre is above the road if the out grade is greater than the in grade. -->
+    <!-- ie: (Pi / 2.0 - inVertAngle) < (Pi / 2.0 - outVertAngle)                    -->
+    <!-- Due to the angles being turned from the vertical this is then rearranged    -->
+    <!-- to be $outVertAngle < $inVertAngle.                                         -->
+    <xsl:variable name="centreElev">
+      <xsl:choose>
+        <xsl:when test="$outVertAngle &lt; $inVertAngle">
+          <xsl:value-of select="$startElev + $radius * math:sin(number($inVertAngle))"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$startElev - $radius * math:sin(number($inVertAngle))"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+
+    <!-- Now return the station/elevation pair -->
+    <xsl:element name="centreStn" namespace="">
+      <xsl:value-of select="$centreStation"/>
+    </xsl:element>
+    <xsl:element name="centreElev" namespace="">
+      <xsl:value-of select="$centreElev"/>
+    </xsl:element>
+  </xsl:if>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ** Return The Sag/Summit Point For A Circular Vertical Curve *** -->
+<!-- **************************************************************** -->
+<xsl:template name="SagSummitPointCircularVC">
+  <xsl:param name="centrePtStn"/>
+  <xsl:param name="centrePtElev"/>
+  <xsl:param name="radius"/>
+  <xsl:param name="startStn"/>
+  <xsl:param name="endStn"/>
+  <xsl:param name="gradeIn"/>
+  <xsl:param name="gradeOut"/>
+  
+  <!-- Returns a node set variable with the following elements: -->
+  <!--   sagSummitStn  - station value   -->
+  <!--   sagSummitElev - elevation value -->
+
+  <xsl:if test="($centrePtStn &gt;= $startStn) and ($centrePtStn &lt;= $endStn)">
+    <xsl:variable name="inVertAngle">
+      <xsl:call-template name="ComputedVertAngleFromGrade">
+        <xsl:with-param name="grade" select="$gradeIn"/>
+      </xsl:call-template>
+    </xsl:variable>
+    <xsl:variable name="outVertAngle">
+      <xsl:call-template name="ComputedVertAngleFromGrade">
+        <xsl:with-param name="gradet" select="$gradeOut"/>
+      </xsl:call-template>
+    </xsl:variable>
+    <xsl:variable name="sagSummitElev">
+      <xsl:choose>
+        <xsl:when test="$outVertAngle &lt; $inVertAngle"> <!-- Centre above the road -->
+          <xsl:value-of select="$centrePtElev - $radius"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$centrePtElev + $radius"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+
+    <xsl:element name="sagSummitStn" namespace="">
+      <xsl:value-of select="$centrePtStn"/>
+    </xsl:element>
+
+    <xsl:element name="sagSummitElev" namespace="">
+      <xsl:value-of select="$sagSummitElev"/>
+    </xsl:element>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *********** Return The Elevation At Specified Station ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="ElevationAtStation">
+  <xsl:param name="theStation"/>
+  <xsl:param name="vertAlignment"/>
+
+  <xsl:variable name="station">  <!-- Check for the passed in station value being within 0.0005 of the vertical alignment start or end station -->
+    <xsl:variable name="startDelta" select="math:abs(number($theStation - msxsl:node-set($vertAlignment)/StartStation))"/>
+    <xsl:variable name="endDelta" select="math:abs(number($theStation - msxsl:node-set($vertAlignment)/EndStation))"/>
+    <xsl:choose>
+      <xsl:when test="$startDelta &lt; 0.0005">
+        <xsl:value-of select="msxsl:node-set($vertAlignment)/StartStation"/>
+      </xsl:when>
+      <xsl:when test="$endDelta &lt; 0.0005">
+        <xsl:value-of select="msxsl:node-set($vertAlignment)/EndStation"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$theStation"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:choose>
+    <xsl:when test="($station &lt; msxsl:node-set($vertAlignment)/StartStation) or
+                    ($station &gt; msxsl:node-set($vertAlignment)/EndStation)">
+      <xsl:value-of select="''"/>  <!-- Return null -->
+    </xsl:when>
+
+    <xsl:otherwise>
+      <xsl:for-each select="msxsl:node-set($vertAlignment)/*[(name(.) != 'StartStation') and (name(.) != 'EndStation')]">
+        <xsl:variable name="stationIP" select="number(IntersectionPoint/Station)"/>
+        <xsl:variable name="nextStnIP" select="number(following-sibling::*[1]/IntersectionPoint/Station)"/>
+        <xsl:if test="($station &gt;= $stationIP) and (($station &lt; $nextStnIP) or (string(number($nextStnIP)) = 'NaN'))">
+        <xsl:variable name="elevIP" select="IntersectionPoint/Elevation"/>
+        <xsl:variable name="endStn">
+          <xsl:choose>
+            <xsl:when test="name(.) = 'VerticalPoint'">
+              <xsl:value-of select="$stationIP"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="EndPoint/Station"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+        <xsl:variable name="nextStartStn">
+          <xsl:choose>
+            <xsl:when test="name(following-sibling::*[1]) = 'VerticalPoint'">
+              <xsl:value-of select="following-sibling::*[1]/IntersectionPoint/Station"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="following-sibling::*[1]/StartPoint/Station"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+        <!-- We have located the vertical IP before or equal to the required station -->
+        <xsl:choose>
+          <!-- When at a vertical point simply return its elevation -->
+          <xsl:when test="($station = $stationIP) and (name(.) = 'VerticalPoint')">
+            <xsl:value-of select="$elevIP"/>
+          </xsl:when>
+
+          <!-- When on a grade compute the elevation along the grade -->
+          <xsl:when test="($station &gt;= $endStn) and ($station &lt;= $nextStartStn)">
+            <xsl:value-of select="$elevIP + ($station - $stationIP) * (GradeOut div 100.0)"/>
+          </xsl:when>
+
+        <!-- When on the lead out section of this parabolic vertical curve compute the elevation on the curve -->
+        <xsl:when test="((name(.) = 'VerticalParabola') or (name(.) = 'VerticalAsymmetricParabola')) and
+                        ($station &lt; $endStn)">
+          <xsl:call-template name="ParabolaPointElevation">
+            <xsl:with-param name="stationIP" select="$stationIP"/>
+            <xsl:with-param name="gradeIn" select="GradeIn div 100.0"/>
+            <xsl:with-param name="gradeOut" select="GradeOut div 100.0"/>
+            <xsl:with-param name="startStn" select="StartPoint/Station"/>
+            <xsl:with-param name="endStn" select="EndPoint/Station"/>
+            <xsl:with-param name="startElev" select="StartPoint/Elevation"/>
+            <xsl:with-param name="endElev" select="EndPoint/Elevation"/>
+            <xsl:with-param name="lenIn" select="$stationIP - StartPoint/Station"/>
+            <xsl:with-param name="lenOut" select="EndPoint/Station - $stationIP"/>
+            <xsl:with-param name="ptStn" select="$station"/>
+          </xsl:call-template>
+        </xsl:when>
+
+        <!-- When on the lead in section of next parabolic vertical curve compute the elevation on the curve -->
+        <xsl:when test="((name(following-sibling::*[1]) = 'VerticalParabola') or
+                         (name(following-sibling::*[1]) = 'VerticalAsymmetricParabola')) and
+                        ($station &gt; following-sibling::*[1]/StartPoint/Station)">
+          <xsl:call-template name="ParabolaPointElevation">
+            <xsl:with-param name="stationIP" select="$nextStnIP"/>
+            <xsl:with-param name="gradeIn" select="following-sibling::*[1]/GradeIn div 100.0"/>
+            <xsl:with-param name="gradeOut" select="following-sibling::*[1]/GradeOut div 100.0"/>
+            <xsl:with-param name="startStn" select="following-sibling::*[1]/StartPoint/Station"/>
+            <xsl:with-param name="endStn" select="following-sibling::*[1]/EndPoint/Station"/>
+            <xsl:with-param name="startElev" select="following-sibling::*[1]/StartPoint/Elevation"/>
+            <xsl:with-param name="endElev" select="following-sibling::*[1]/EndPoint/Elevation"/>
+            <xsl:with-param name="lenIn" select="$nextStnIP - following-sibling::*[1]/StartPoint/Station"/>
+            <xsl:with-param name="lenOut" select="following-sibling::*[1]/EndPoint/Station - $nextStnIP"/>
+            <xsl:with-param name="ptStn" select="$station"/>
+          </xsl:call-template>
+        </xsl:when>
+
+        <!-- When on the lead out section of this circular vertical curve compute the elevation on the curve -->
+        <xsl:when test="(name(.) = 'VerticalArc') and ($station &lt; $endStn)">
+          <xsl:call-template name="CircularVertCurvePointElevation">
+            <xsl:with-param name="centreStn" select="CentrePoint/Station"/>
+            <xsl:with-param name="centreElev" select="CentrePoint/Elevation"/>
+            <xsl:with-param name="intersectElev" select="IntersectionPoint/Elevation"/>
+            <xsl:with-param name="radius" select="Radius"/>
+            <xsl:with-param name="ptStn" select="$station"/>
+          </xsl:call-template>
+        </xsl:when>
+
+        <!-- When on the lead in section of next circular vertical curve compute the elevation on the curve -->
+        <xsl:when test="(name(following-sibling::*[1]) = 'VerticalArc') and
+                        ($station &gt; following-sibling::*[1]/StartPoint/Station)">
+          <xsl:call-template name="CircularVertCurvePointElevation">
+            <xsl:with-param name="centreStn" select="following-sibling::*[1]/CentrePoint/Station"/>
+            <xsl:with-param name="centreElev" select="following-sibling::*[1]/CentrePoint/Elevation"/>
+            <xsl:with-param name="intersectElev" select="following-sibling::*[1]/IntersectionPoint/Elevation"/>
+            <xsl:with-param name="radius" select="following-sibling::*[1]/Radius"/>
+            <xsl:with-param name="ptStn" select="$station"/>
+          </xsl:call-template>
+        </xsl:when>
+
+      </xsl:choose>
+    </xsl:if>
+  </xsl:for-each>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *** Return Percentage Grade At Specified Station On Parabola *** -->
+<!-- **************************************************************** -->
+<xsl:template name="ParabolaGradeAtStationAsPercentage">
+  <xsl:param name="startStn"/>
+  <xsl:param name="stationIP"/>
+  <xsl:param name="endStn"/>
+  <xsl:param name="gradeIn"/>
+  <xsl:param name="gradeOut"/>
+  <xsl:param name="lenIn"/>
+  <xsl:param name="lenOut"/>
+  <xsl:param name="ptStn"/>
+
+  <xsl:variable name="aOne">
+    <xsl:choose>
+      <xsl:when test="$lenIn + $lenOut &gt; 0.0">
+        <xsl:value-of select="($gradeOut - $gradeIn) * $lenOut div ($lenIn + $lenOut)"/>
+      </xsl:when>
+      <xsl:otherwise>0.0</xsl:otherwise>  <!-- avoid divide by zero -->
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="aTwo">
+    <xsl:choose>
+      <xsl:when test="$lenIn + $lenOut &gt; 0.0">
+        <xsl:value-of select="($gradeOut - $gradeIn) * $lenIn div ($lenIn + $lenOut)"/>
+      </xsl:when>
+      <xsl:otherwise>0.0</xsl:otherwise>  <!-- avoid divide by zero -->
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="xE" select="$ptStn - $startStn"/>
+  <xsl:variable name="xX" select="$ptStn - $endStn"/>
+
+  <xsl:choose>
+    <xsl:when test="$ptStn &lt; $stationIP">
+      <xsl:choose>
+        <xsl:when test="$lenIn != 0.0">
+          <xsl:value-of select="(($aOne div $lenIn) * $xE + $gradeIn) * 100.0"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="0.0"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+
+    <xsl:otherwise>
+      <xsl:choose>
+        <xsl:when test="$lenOut != 0.0">
+          <xsl:value-of select="(($aTwo div $lenOut) * $xX + $gradeOut) * 100.0"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="0.0"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******* Return The Percentage Grade At Specified Station ******* -->
+<!-- **************************************************************** -->
+<xsl:template name="GradeAtStationAsPercentage">
+  <xsl:param name="theStation"/>
+  <xsl:param name="vertAlignment"/>
+
+  <xsl:variable name="station">  <!-- Check for the passed in station value being within 0.0005 of the vertical alignment start or end station -->
+    <xsl:variable name="startDelta" select="math:abs(number($theStation - msxsl:node-set($vertAlignment)/StartStation))"/>
+    <xsl:variable name="endDelta" select="math:abs(number($theStation - msxsl:node-set($vertAlignment)/EndStation))"/>
+    <xsl:choose>
+      <xsl:when test="$startDelta &lt; 0.0005">
+        <xsl:value-of select="msxsl:node-set($vertAlignment)/StartStation"/>
+      </xsl:when>
+      <xsl:when test="$endDelta &lt; 0.0005">
+        <xsl:value-of select="msxsl:node-set($vertAlignment)/EndStation"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$theStation"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:choose>
+    <xsl:when test="($station &lt; msxsl:node-set($vertAlignment)/StartStation) or
+                    ($station &gt; msxsl:node-set($vertAlignment)/EndStation)">
+      <xsl:value-of select="''"/>  <!-- Return null -->
+    </xsl:when>
+
+    <xsl:otherwise>
+      <xsl:for-each select="msxsl:node-set($vertAlignment)/*[(name(.) != 'StartStation') and (name(.) != 'EndStation')]">
+        <xsl:variable name="stationIP" select="number(IntersectionPoint/Station)"/>
+        <xsl:variable name="nextStnIP" select="number(following-sibling::*[1]/IntersectionPoint/Station)"/>
+        <xsl:if test="($station &gt;= $stationIP) and (($station &lt; $nextStnIP) or (string(number($nextStnIP)) = 'NaN'))">
+          <xsl:variable name="endStn">
+            <xsl:choose>
+              <xsl:when test="name(.) = 'VerticalPoint'">
+                <xsl:value-of select="$stationIP"/>
+              </xsl:when>
+              <xsl:otherwise>
+                <xsl:value-of select="EndPoint/Station"/>
+              </xsl:otherwise>
+            </xsl:choose>
+          </xsl:variable>
+          <xsl:variable name="nextStartStn">
+            <xsl:choose>
+              <xsl:when test="name(following-sibling::*[1]) = 'VerticalPoint'">
+                <xsl:value-of select="following-sibling::*[1]/IntersectionPoint/Station"/>
+              </xsl:when>
+              <xsl:otherwise>
+                <xsl:value-of select="following-sibling::*[1]/StartPoint/Station"/>
+              </xsl:otherwise>
+            </xsl:choose>
+          </xsl:variable>
+
+          <!-- We have located the vertical IP before or equal to the required station -->
+          <xsl:choose>
+            <!-- When at or very close to a vertical point simply return the grade in (or grade out if grade in is null -->
+            <xsl:when test="(math:abs(number($station - $stationIP)) &lt; 0.00001) and (name(.) = 'VerticalPoint')">
+              <xsl:variable name="grade">
+                <xsl:choose>
+                  <xsl:when test="string(number(GradeIn)) != 'NaN'">
+                    <xsl:value-of select="GradeIn"/>
+                  </xsl:when>
+                  <xsl:otherwise>
+                    <xsl:value-of select="GradeOut"/>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+              <xsl:value-of select="$grade"/>
+            </xsl:when>
+
+            <!-- When on a straight grade return it (the GradeOut) -->
+            <xsl:when test="($station &gt;= $endStn) and ($station &lt;= $nextStartStn)">
+              <xsl:value-of select="GradeOut"/>
+            </xsl:when>
+
+            <!-- When on the lead out section of this parabolic vertical curve compute the elevation on the curve -->
+            <xsl:when test="((name(.) = 'VerticalParabola') or (name(.) = 'VerticalAsymmetricParabola')) and
+                            ($station &lt; $endStn)">
+              <xsl:call-template name="ParabolaGradeAtStationAsPercentage">
+                <xsl:with-param name="startStn" select="StartPoint/Station"/>
+                <xsl:with-param name="stationIP" select="IntersectionPoint/Station"/>
+                <xsl:with-param name="endStn" select="EndPoint/Station"/>
+                <xsl:with-param name="gradeIn" select="GradeIn div 100.0"/>
+                <xsl:with-param name="gradeOut" select="GradeOut div 100.0"/>
+                <xsl:with-param name="lenIn" select="IntersectionPoint/Station - StartPoint/Station"/>
+                <xsl:with-param name="lenOut" select="EndPoint/Station - IntersectionPoint/Station"/>
+                <xsl:with-param name="ptStn" select="$station"/>
+              </xsl:call-template>
+            </xsl:when>
+
+            <!-- When on the lead in section of next parabolic vertical curve compute the elevation on the curve -->
+            <xsl:when test="((name(following-sibling::*[1]) = 'VerticalParabola') or
+                             (name(following-sibling::*[1]) = 'VerticalAsymmetricParabola')) and
+                            ($station &gt; following-sibling::*[1]/StartPoint/Station)">
+              <xsl:call-template name="ParabolaGradeAtStationAsPercentage">
+                <xsl:with-param name="startStn" select="following-sibling::*[1]/StartPoint/Station"/>
+                <xsl:with-param name="stationIP" select="$nextStnIP"/>
+                <xsl:with-param name="endStn" select="following-sibling::*[1]/EndPoint/Station"/>
+                <xsl:with-param name="gradeIn" select="following-sibling::*[1]/GradeIn div 100.0"/>
+                <xsl:with-param name="gradeOut" select="following-sibling::*[1]/GradeOut div 100.0"/>
+                <xsl:with-param name="lenIn" select="$nextStnIP - following-sibling::*[1]/StartPoint/Station"/>
+                <xsl:with-param name="lenOut" select="following-sibling::*[1]/EndPoint/Station - $nextStnIP"/>
+                <xsl:with-param name="ptStn" select="$station"/>
+              </xsl:call-template>
+            </xsl:when>
+
+            <!-- When on the lead out section of this circular vertical curve compute the elevation on the curve -->
+            <xsl:when test="(name(.) = 'VerticalArc') and ($station &lt; $endStn)">
+              <xsl:variable name="elev">
+                <xsl:call-template name="CircularVertCurvePointElevation">
+                  <xsl:with-param name="centreStn" select="CentrePoint/Station"/>
+                  <xsl:with-param name="centreElev" select="CentrePoint/Elevation"/>
+                  <xsl:with-param name="intersectElev" select="IntersectionPoint/Elevation"/>
+                  <xsl:with-param name="radius" select="Radius"/>
+                  <xsl:with-param name="ptStn" select="$station"/>
+                </xsl:call-template>
+              </xsl:variable>
+
+              <xsl:value-of select="(CentrePoint/Station - $station) div ($elev - CentrePoint/Elevation) * 100.0"/>
+            </xsl:when>
+
+            <!-- When on the lead in section of next circular vertical curve compute the elevation on the curve -->
+            <xsl:when test="(name(following-sibling::*[1]) = 'VerticalArc') and
+                            ($station &gt; following-sibling::*[1]/StartPoint/Station)">
+              <xsl:variable name="elev">
+                <xsl:call-template name="CircularVertCurvePointElevation">
+                  <xsl:with-param name="centreStn" select="following-sibling::*[1]/CentrePoint/Station"/>
+                  <xsl:with-param name="centreElev" select="following-sibling::*[1]/CentrePoint/Elevation"/>
+                  <xsl:with-param name="intersectElev" select="following-sibling::*[1]/IntersectionPoint/Elevation"/>
+                  <xsl:with-param name="radius" select="following-sibling::*[1]/Radius"/>
+                  <xsl:with-param name="ptStn" select="$station"/>
+                </xsl:call-template>
+              </xsl:variable>
+
+              <xsl:value-of select="(following-sibling::*[1]/CentrePoint/Station - $station) div ($elev - following-sibling::*[1]/CentrePoint/Elevation) * 100.0"/>
+            </xsl:when>
+          </xsl:choose>
+        </xsl:if>
+      </xsl:for-each>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+</xsl:stylesheet>

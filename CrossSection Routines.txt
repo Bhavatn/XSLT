@@ -1,0 +1,628 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:msxsl="urn:schemas-microsoft-com:xslt">
+
+<!-- Functions available in this style sheet: -->
+<!--   ElementGrade - returns the grade for a given template element -->
+<!--   SuperelevatedGrade - returns the superelevated grade (including rollover application) for a given template element -->
+<!--   GetTemplateNames - returns a node set of the previous and next template names and stations on both left and right -->
+<!--   GetTemplateDeltas - returns a node set containing all the deltas for the given template -->
+<!--   ComputeCLElevAdj -  Returns the centreline elevation adjustment value for left/right superelevations pivot positions -->
+
+<!-- **************************************************************** -->
+<!-- *************** Return the Grade for an Element **************** -->
+<!-- **************************************************************** -->
+<xsl:template name="ElementGrade">
+  <xsl:param name="templateElement"/>
+
+  <xsl:choose>
+    <xsl:when test="name(msxsl:node-set($templateElement)) = 'DistanceAndGrade'">
+      <xsl:value-of select="Grade"/>
+    </xsl:when>
+    <xsl:otherwise> <!-- DistanceAndVerticalDistance element-->
+      <xsl:choose>
+        <xsl:when test="HorizontalDistance != 0.0">  <!-- Can compute the grade -->
+          <xsl:value-of select="VerticalDistance div HorizontalDistance * 100.0"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="Nan"/>  <!-- Vertical element - no grade -->
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ****************** Return Superelevated Grade ****************** -->
+<!-- **************************************************************** -->
+<xsl:template name="SuperelevatedGrade">
+  <xsl:param name="superWideningVals"/>
+  <xsl:param name="template"/>
+  <xsl:param name="templateElement"/>
+  <xsl:param name="firstSuperedElement"/>
+  <xsl:param name="widenedDist"/>
+  <xsl:param name="position"/>
+  <xsl:param name="applyRollover" select="'true'"/>
+
+  <xsl:variable name="grade">
+    <xsl:call-template name="ElementGrade">
+      <xsl:with-param name="templateElement" select="$templateElement"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <!-- Apply any superelevation to the grade -->
+  <xsl:choose>
+    <xsl:when test="string(number(msxsl:node-set($superWideningVals)/super)) != 'NaN'">
+      <xsl:choose>
+        <xsl:when test="(msxsl:node-set($templateElement)/ApplySuperelevation = 'true') and
+                        ($position = msxsl:node-set($firstSuperedElement)/position)">
+          <!-- This is the first actual supered template element - Use the specified superelevation as the grade value -->
+          <xsl:value-of select="msxsl:node-set($superWideningVals)/super"/>
+        </xsl:when>
+
+        <xsl:otherwise>  <!-- Must be an unsupered element or a supered element subsequent to the first supered element -->
+          <xsl:choose>
+            <xsl:when test="msxsl:node-set($templateElement)/ApplySuperelevation = 'true'">
+              <xsl:value-of select="$grade + msxsl:node-set($firstSuperedElement)/deltaGrade"/> <!-- Apply the delta grade at the first supered element to this element -->
+            </xsl:when>
+
+            <xsl:when test="(msxsl:node-set($templateElement)/ApplyRollover = 'true') and
+                            ($applyRollover = 'true')">  <!-- ApplyRollover and ApplySuperelevation can't both be true -->
+              <xsl:variable name="currentPos" select="$position"/>
+
+              <xsl:variable name="prevElementGrade">  <!-- Compute the grade used for the previous element -->
+                <xsl:for-each select="msxsl:node-set($template)/*[(name(.) != 'Name') and (name(.) != 'SideSlope') and (name(.) != 'Deleted')]">
+                  <xsl:if test="position() = $currentPos - 1">  <!-- We have the previous element -->
+                    <xsl:variable name="initialGrade">
+                      <xsl:call-template name="ElementGrade">
+                        <xsl:with-param name="templateElement" select="."/>
+                      </xsl:call-template>
+                    </xsl:variable>
+
+                    <xsl:element name="initialGrade" namespace="">
+                      <xsl:value-of select="$initialGrade"/>
+                    </xsl:element>
+
+                    <xsl:element name="superGrade" namespace="">
+                      <xsl:choose>
+                        <xsl:when test="ApplySuperelevation = 'true'">
+                          <xsl:value-of select="$initialGrade + msxsl:node-set($firstSuperedElement)/deltaGrade"/> <!-- Apply the delta grade at the first supered element to this element -->
+                        </xsl:when>
+                        <xsl:otherwise>
+                          <xsl:value-of select="$initialGrade"/>
+                        </xsl:otherwise>
+                      </xsl:choose>
+                    </xsl:element>
+                  </xsl:if>
+                </xsl:for-each>
+              </xsl:variable>
+
+              <!-- Now have the grade for the previous element - carry out the rollover tests -->
+              <xsl:choose>
+                <xsl:when test="(msxsl:node-set($prevElementGrade)/superGrade &gt; msxsl:node-set($prevElementGrade)/initialGrade) and
+                                ((msxsl:node-set($prevElementGrade)/superGrade - $grade) &gt; RolloverGrade)"> <!-- Outside super application exceeds rollover specified -->
+                  <xsl:value-of select="msxsl:node-set($prevElementGrade)/superGrade - RolloverGrade"/>
+                </xsl:when>
+                <xsl:when test="$grade &gt; msxsl:node-set($prevElementGrade)/superGrade"> <!-- Inside super application creates steeper grade than this element's grade -->
+                  <xsl:value-of select="msxsl:node-set($prevElementGrade)/superGrade"/>    <!-- Set this element to same grade as the previous element -->
+                </xsl:when>
+                <xsl:otherwise>
+                  <xsl:value-of select="$grade"/>
+                </xsl:otherwise>
+              </xsl:choose>
+            </xsl:when>
+
+            <xsl:otherwise>
+              <xsl:value-of select="$grade"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+
+    <xsl:otherwise> <!-- No superelevation value so just use existing grade -->
+      <xsl:value-of select="$grade"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************* Get Previous and Next Template Names ************* -->
+<!-- **************************************************************** -->
+<xsl:template name="GetTemplateNames">
+  <xsl:param name="station"/>
+  <xsl:param name="templateAssignment"/>
+    
+  <!-- Get the previous and next template names for left and right sides based on current station -->
+  <!-- Returns a node set with the following elements:
+         prevLeftTemplateName
+         prevRightTemplateName
+         prevLeftTemplateStation
+         prevRightTemplateStation
+         nextLeftTemplateName
+         nextRightTemplateName
+         nextLeftTemplateStation
+         nextRightTemplateStation
+  -->
+  
+  <xsl:element name="prevLeftTemplateName" namespace="">
+    <xsl:for-each select="msxsl:node-set($templateAssignment)/ApplyTemplates[(Station &lt;= $station) and (LeftSide/Type != 'Interpolate')][last()]">
+      <xsl:value-of select="LeftSide/Name"/>
+    </xsl:for-each>
+  </xsl:element>
+  
+  <xsl:element name="prevRightTemplateName" namespace="">
+    <xsl:for-each select="msxsl:node-set($templateAssignment)/ApplyTemplates[(Station &lt;= $station) and (RightSide/Type != 'Interpolate')][last()]">
+      <xsl:value-of select="RightSide/Name"/>
+    </xsl:for-each>
+  </xsl:element>
+  
+  <xsl:element name="prevLeftTemplateStation" namespace="">
+    <xsl:for-each select="msxsl:node-set($templateAssignment)/ApplyTemplates[(Station &lt;= $station) and (LeftSide/Type != 'Interpolate')][last()]">
+      <xsl:value-of select="Station"/>
+    </xsl:for-each>
+  </xsl:element>
+
+  <xsl:element name="prevRightTemplateStation" namespace="">
+    <xsl:for-each select="msxsl:node-set($templateAssignment)/ApplyTemplates[(Station &lt;= $station) and (RightSide/Type != 'Interpolate')][last()]">
+      <xsl:value-of select="Station"/>
+    </xsl:for-each>
+  </xsl:element>
+
+  <xsl:element name="nextLeftTemplateName" namespace="">
+    <xsl:for-each select="msxsl:node-set($templateAssignment)/ApplyTemplates[(Station &gt;= $station) and (LeftSide/Type != 'Interpolate')][1]">
+      <xsl:value-of select="LeftSide/Name"/>
+    </xsl:for-each>
+  </xsl:element>
+
+  <xsl:element name="nextRightTemplateName" namespace="">
+    <xsl:for-each select="msxsl:node-set($templateAssignment)/ApplyTemplates[(Station &gt;= $station) and (RightSide/Type != 'Interpolate')][1]">
+      <xsl:value-of select="RightSide/Name"/>
+    </xsl:for-each>
+  </xsl:element>
+
+  <xsl:element name="nextLeftTemplateStation" namespace="">
+    <xsl:for-each select="msxsl:node-set($templateAssignment)/ApplyTemplates[(Station &gt;= $station) and (LeftSide/Type != 'Interpolate')][1]">
+      <xsl:value-of select="Station"/>
+    </xsl:for-each>
+  </xsl:element>
+
+  <xsl:element name="nextRightTemplateStation" namespace="">
+    <xsl:for-each select="msxsl:node-set($templateAssignment)/ApplyTemplates[(Station &gt;= $station) and (RightSide/Type != 'Interpolate')][1]">
+      <xsl:value-of select="Station"/>
+    </xsl:for-each>
+  </xsl:element>
+
+</xsl:template>
+
+  
+<!-- **************************************************************** -->
+<!-- ****************** Get Template Delta Values ******************* -->
+<!-- **************************************************************** -->
+<xsl:template name="GetTemplateDeltas">
+  <xsl:param name="templates"/>
+  <xsl:param name="templateNames"/>
+  <xsl:param name="templateName"/>
+  <xsl:param name="station"/>
+  <xsl:param name="superWideningAssignment"/>
+  <xsl:param name="side"/>
+  <xsl:param name="prev"/>
+  <xsl:param name="includeSideSlopeElements" select="'false'"/>
+  
+  <!-- This template computes the deltas across the specified template including the   -->
+  <!-- application of the superelevation and widening at the assigned template station -->
+  <!-- (not necessarily the current station) and returns a node set of cross-section   -->
+  <!-- position delta values as follows:
+          <xsPos>
+            <deltaElev>number</deltaElev>
+            <deltaOffset>number</deltaOffset>
+            <code>string</code>
+            <clElevAdj>
+              <value>number</value>     the centreline elevation adjustment for the template
+              <prevStn>number</prevStn> the station of the previous template assignment
+              <nextStn>number</nextStn> the station of the next template assignment
+            </clElevAdj>
+          </xsPos>
+
+       If there is a side slope element defined and $includeSideSlopeElements is not 'false' 
+       this will be added as a sideSlope element
+          <SideSlope>
+            <Code>string</Code>
+            <CutGrade>number</CutGrade>
+            <FillGrade>number</FillGrade>
+            <CutDitchWidth>number</CutDitchWidth>
+          </SideSlope>
+  -->
+
+  <!-- Get a node set of the superelevation and widening values (interpolated -->
+  <!-- if required) for both sides at the specified station.                  -->
+  <xsl:variable name="allSuperWideningVals">
+    <xsl:call-template name="GetSuperWidening">
+      <xsl:with-param name="station" select="$station"/>
+      <xsl:with-param name="superWideningAssignment" select="$superWideningAssignment"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <!-- Now grab the superelevation and widening details that apply to this side -->
+  <xsl:variable name="superWideningVals">
+    <xsl:element name="pivot" namespace="">
+      <xsl:value-of select="msxsl:node-set($allSuperWideningVals)/pivot"/>
+    </xsl:element>
+    <xsl:choose>
+      <xsl:when test="$side = 'Left'">  <!-- Get the left side values -->
+        <xsl:element name="super" namespace="">
+          <xsl:value-of select="msxsl:node-set($allSuperWideningVals)/leftSuper"/>
+        </xsl:element>
+
+        <xsl:element name="widening" namespace="">
+          <xsl:value-of select="msxsl:node-set($allSuperWideningVals)/leftWidening"/>
+        </xsl:element>
+      </xsl:when>
+
+      <xsl:otherwise>  <!-- Get the right side values -->
+        <xsl:element name="super" namespace="">
+          <xsl:value-of select="msxsl:node-set($allSuperWideningVals)/rightSuper"/>
+        </xsl:element>
+
+        <xsl:element name="widening" namespace="">
+          <xsl:value-of select="msxsl:node-set($allSuperWideningVals)/rightWidening"/>
+        </xsl:element>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <!-- Compute the centreline vertical adjustment required for left and right pivot superelevation -->
+  <!-- definitions.  This is done by computing the template deltas without superelevation applied  -->
+  <!-- but with any widening applied, then computing the deltas with both superelevation and       -->
+  <!-- widening applied and returning the elevation difference between the sums of the elevation   -->
+  <!-- deltas from each application.  The superelevation and widening values used are those that   -->
+  <!-- apply at the actual station of interest.                                                    -->
+  <xsl:variable name="clElevAdj">  <!-- The centreline elevation may need to be adjusted in the case of left or right superelevation pivot points -->
+    <xsl:choose>
+      <xsl:when test="msxsl:node-set($superWideningVals)/pivot = 'Crown'">0</xsl:when> <!-- No centreline elevation adjustment when pivoting about the crown -->
+      <xsl:otherwise>
+        <xsl:call-template name="ComputeCLElevAdj">
+          <xsl:with-param name="station" select="$station"/>
+          <xsl:with-param name="templates" select="$templates"/>
+          <xsl:with-param name="templateNames" select="$templateNames"/>
+          <xsl:with-param name="superWideningAssignment" select="$superWideningAssignment"/>
+          <xsl:with-param name="pivot" select="msxsl:node-set($superWideningVals)/pivot"/>
+          <xsl:with-param name="prev" select="$prev"/>  <!-- Pass through whether we are interested in the previous or next template -->
+        </xsl:call-template>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <!-- Retain the station of the previous and next templates on the pivot side so that -->
+  <!-- they can be used later for interpolation purposes - the values are passed back  -->
+  <!-- with the computed centreline elevation correction.                              -->
+  <xsl:variable name="clElevAdjPrevStn">
+    <xsl:choose>
+      <xsl:when test="msxsl:node-set($superWideningVals)/pivot = 'Left'">
+        <xsl:value-of select="msxsl:node-set($templateNames)/prevLeftTemplateStation"/>
+      </xsl:when>
+
+      <xsl:when test="msxsl:node-set($superWideningVals)/pivot = 'Right'">
+        <xsl:value-of select="msxsl:node-set($templateNames)/prevRightTemplateStation"/>
+      </xsl:when>
+
+      <xsl:otherwise>0</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="clElevAdjNextStn">
+    <xsl:choose>
+      <xsl:when test="msxsl:node-set($superWideningVals)/pivot = 'Left'">
+        <xsl:value-of select="msxsl:node-set($templateNames)/nextLeftTemplateStation"/>
+      </xsl:when>
+
+      <xsl:when test="msxsl:node-set($superWideningVals)/pivot = 'Right'">
+        <xsl:value-of select="msxsl:node-set($templateNames)/nextRightTemplateStation"/>
+      </xsl:when>
+
+      <xsl:otherwise>0</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="firstSuperedElement">
+    <xsl:for-each select="msxsl:node-set($templates)/Template[Name = $templateName]/*[(name(.) != 'Name') and (name(.) != 'SideSlope') and (name(.) != 'Deleted')]">
+      <xsl:if test="(ApplySuperelevation = 'true') and (count(preceding-sibling::*[ApplySuperelevation = 'true']) = 0)">
+        <!-- This element has super switched on and no preceding elements had super switched on -->
+        <xsl:element name="position" namespace="">
+          <xsl:value-of select="position()"/>
+        </xsl:element>
+
+        <xsl:element name="deltaGrade" namespace="">
+          <xsl:variable name="origGrade">
+            <xsl:call-template name="ElementGrade">
+              <xsl:with-param name="templateElement" select="."/>
+            </xsl:call-template>
+          </xsl:variable>
+
+          <xsl:value-of select="msxsl:node-set($superWideningVals)/super - $origGrade"/>
+        </xsl:element>
+      </xsl:if>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <!-- Now compute the sets of deltas across the template applying the appropriate -->
+  <!-- superelevation and widening.                                                -->
+  <xsl:for-each select="msxsl:node-set($templates)/Template[Name = $templateName]">
+    <xsl:for-each select="*[(name(.) != 'Name') and (name(.) != 'SideSlope') and (name(.) != 'Deleted')]">
+
+      <xsl:variable name="widenedDist">
+        <xsl:choose>
+          <xsl:when test="ApplyWidening = 'true'">
+            <xsl:value-of select="HorizontalDistance + msxsl:node-set($superWideningVals)/widening"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="HorizontalDistance"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+
+      <!-- Apply any superelevation to the grade -->
+      <xsl:variable name="superGrade">
+        <xsl:call-template name="SuperelevatedGrade">
+          <xsl:with-param name="superWideningVals" select="$superWideningVals"/>
+          <xsl:with-param name="template" select="parent::Template"/>
+          <xsl:with-param name="templateElement" select="."/>
+          <xsl:with-param name="firstSuperedElement" select="$firstSuperedElement"/>
+          <xsl:with-param name="widenedDist" select="$widenedDist"/>
+          <xsl:with-param name="position" select="position()"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:element name="xsPos" namespace="">
+        <xsl:element name="deltaElev" namespace="">
+          <xsl:choose>
+            <xsl:when test="string(number($superGrade)) = 'NaN'">  <!-- No grade - must be vertical -->
+              <xsl:value-of select="VerticalDistance"/>            <!-- Use the VerticalDistance value -->
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="$widenedDist * $superGrade div 100.0"/>  <!-- Apply superelevated grade to widened horiz distance -->
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:element>
+
+        <xsl:element name="deltaOffset" namespace="">
+          <xsl:value-of select="$widenedDist"/>
+        </xsl:element>
+
+        <xsl:element name="code" namespace="">
+          <xsl:value-of select="Code"/>
+        </xsl:element>
+
+        <xsl:element name="clElevAdj" namespace="">
+          <xsl:element name="value" namespace="">
+            <xsl:value-of select="$clElevAdj"/>
+          </xsl:element>
+          <xsl:element name="prevStn" namespace="">
+            <xsl:value-of select="$clElevAdjPrevStn"/>
+          </xsl:element>
+          <xsl:element name="nextStn" namespace="">
+            <xsl:value-of select="$clElevAdjNextStn"/>
+          </xsl:element>
+        </xsl:element>
+      </xsl:element>
+    </xsl:for-each>
+    
+    <xsl:if test="$includeSideSlopeElements != 'false'">
+      <xsl:for-each select="*[name(.) = 'SideSlope']">
+        <xsl:copy-of select="."/>
+      </xsl:for-each>
+    </xsl:if>
+  </xsl:for-each>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- * Return Centreline Elev Adj Value For Left/Right Super Pivot ** -->
+<!-- **************************************************************** -->
+<xsl:template name="ComputeCLElevAdj">
+  <xsl:param name="station"/>
+  <xsl:param name="templates"/>
+  <xsl:param name="templateNames"/>
+  <xsl:param name="superWideningAssignment"/>
+  <xsl:param name="pivot"/>
+  <xsl:param name="prev"/>
+  
+  <!-- Compute the centreline vertical adjustment required for left and right pivot superelevation -->
+  <!-- definitions.  This is done by computing the template deltas without superelevation applied  -->
+  <!-- but with any widening applied, then computing the deltas with both superelevation and       -->
+  <!-- widening applied and returning the elevation difference between the sums of the elevation   -->
+  <!-- deltas from each application.  The superelevation and widening values used are those that   -->
+  <!-- apply at the actual station of interest.                                                    -->
+
+  <!-- Determine the appropriate template name based on the pivot side and $prev -->
+  <!-- setting (use previous or next template)                                   -->
+  <xsl:variable name="templateName">
+    <xsl:choose>
+      <xsl:when test="($pivot = 'Left') and ($prev = 'true')">
+        <xsl:value-of select="msxsl:node-set($templateNames)/prevLeftTemplateName"/>
+      </xsl:when>
+
+      <xsl:when test="($pivot = 'Left') and ($prev != 'true')">
+        <xsl:value-of select="msxsl:node-set($templateNames)/nextLeftTemplateName"/>
+      </xsl:when>
+
+      <xsl:when test="($pivot = 'Right') and ($prev = 'true')">
+        <xsl:value-of select="msxsl:node-set($templateNames)/prevRightTemplateName"/>
+      </xsl:when>
+
+      <xsl:when test="($pivot = 'Right') and ($prev != 'true')">
+        <xsl:value-of select="msxsl:node-set($templateNames)/nextRightTemplateName"/>
+      </xsl:when>
+    </xsl:choose>
+  </xsl:variable>
+
+  <!-- Determine the appropriate template station based on the pivot side and $prev -->
+  <!-- setting (use previous or next template)                                      -->
+  <xsl:variable name="templateStation">
+    <xsl:choose>
+      <xsl:when test="($pivot = 'Left') and ($prev = 'true')">
+        <xsl:value-of select="msxsl:node-set($templateNames)/prevLeftTemplateStation"/>
+      </xsl:when>
+
+      <xsl:when test="($pivot = 'Left') and ($prev != 'true')">
+        <xsl:value-of select="msxsl:node-set($templateNames)/nextLeftTemplateStation"/>
+      </xsl:when>
+
+      <xsl:when test="($pivot = 'Right') and ($prev = 'true')">
+        <xsl:value-of select="msxsl:node-set($templateNames)/prevRightTemplateStation"/>
+      </xsl:when>
+
+      <xsl:when test="($pivot = 'Right') and ($prev != 'true')">
+        <xsl:value-of select="msxsl:node-set($templateNames)/nextRightTemplateStation"/>
+      </xsl:when>
+    </xsl:choose>
+  </xsl:variable>
+
+  <!-- Get a node set of the superelevation and widening values (interpolated -->
+  <!-- if required) for both sides at the specified station.                  -->
+  <xsl:variable name="allSuperWideningVals">
+    <xsl:call-template name="GetSuperWidening">
+      <xsl:with-param name="station" select="$station"/>
+      <xsl:with-param name="superWideningAssignment" select="$superWideningAssignment"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <!-- Now grab the superelevation and widening details that apply to the pivot side -->
+  <xsl:variable name="superWideningVals">
+    <xsl:choose>
+      <xsl:when test="$pivot = 'Left'">  <!-- Get the left side values -->
+        <xsl:element name="super" namespace="">
+          <xsl:value-of select="msxsl:node-set($allSuperWideningVals)/leftSuper"/>
+        </xsl:element>
+
+        <xsl:element name="widening" namespace="">
+          <xsl:value-of select="msxsl:node-set($allSuperWideningVals)/leftWidening"/>
+        </xsl:element>
+      </xsl:when>
+
+      <xsl:otherwise>  <!-- Get the right side values -->
+        <xsl:element name="super" namespace="">
+          <xsl:value-of select="msxsl:node-set($allSuperWideningVals)/rightSuper"/>
+        </xsl:element>
+
+        <xsl:element name="widening" namespace="">
+          <xsl:value-of select="msxsl:node-set($allSuperWideningVals)/rightWidening"/>
+        </xsl:element>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <!-- Compute the delta elevation value from the centreline to the end of the last -->
+  <!-- superelevated element for the template without any superelevation applied.   -->
+  <xsl:variable name="unsuperedDeltaElevs">
+    <xsl:for-each select="msxsl:node-set($templates)/Template[Name = $templateName]">
+      <xsl:for-each select="*[(ApplySuperelevation = 'true') or (count(following-sibling::*[ApplySuperelevation = 'true']) != 0)]
+                             [(name(.) != 'Name') and (name(.) != 'SideSlope') and (name(.) != 'Deleted')]">
+        <xsl:variable name="widenedDist">  <!-- Still apply any widening if appropriate -->
+          <xsl:choose>
+            <xsl:when test="ApplyWidening = 'true'">
+              <xsl:value-of select="HorizontalDistance + msxsl:node-set($superWideningVals)/widening"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="HorizontalDistance"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+
+        <xsl:element name="deltaElev" namespace="">
+          <xsl:choose>
+            <xsl:when test="name(.) = 'DistanceAndGrade'">
+              <xsl:value-of select="$widenedDist * Grade div 100.0"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="VerticalDistance"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:element>
+      </xsl:for-each>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:variable name="unsuperedDeltaElev" select="sum(msxsl:node-set($unsuperedDeltaElevs)/deltaElev)"/>
+
+  <xsl:variable name="firstSuperedElement">
+    <xsl:for-each select="msxsl:node-set($templates)/Template/*[(ApplySuperelevation = 'true') or (count(following-sibling::*[ApplySuperelevation = 'true']) != 0)]
+                                                               [(name(.) != 'Name') and (name(.) != 'SideSlope') and (name(.) != 'Deleted')]">
+      <xsl:if test="(ApplySuperelevation = 'true') and (count(preceding-sibling::*[ApplySuperelevation = 'true']) = 0)">
+        <!-- This element has super switched on and no preceding elements had super switched on -->
+        <xsl:element name="position" namespace="">
+          <xsl:value-of select="position()"/>
+        </xsl:element>
+
+        <xsl:element name="deltaGrade" namespace="">
+          <xsl:variable name="origGrade">
+            <xsl:call-template name="ElementGrade">
+              <xsl:with-param name="templateElement" select="."/>
+            </xsl:call-template>
+          </xsl:variable>
+
+          <xsl:value-of select="msxsl:node-set($superWideningVals)/super - $origGrade"/>
+        </xsl:element>
+      </xsl:if>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <!-- Now compute the delta elevation value from the centreline to the end of the  -->
+  <!-- last superelevated element with the superelevation and widening applied.     -->
+  <xsl:variable name="superedDeltaElevs">
+    <xsl:for-each select="msxsl:node-set($templates)/Template[Name = $templateName]">
+      <xsl:for-each select="*[(ApplySuperelevation = 'true') or (count(following-sibling::*[ApplySuperelevation = 'true']) != 0)]
+                             [(name(.) != 'Name') and (name(.) != 'SideSlope') and (name(.) != 'Deleted')]">
+
+        <xsl:variable name="widenedDist">
+          <xsl:choose>
+            <xsl:when test="ApplyWidening = 'true'">
+              <xsl:value-of select="HorizontalDistance + msxsl:node-set($superWideningVals)/widening"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="HorizontalDistance"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+
+        <!-- Apply any superelevation to the grade -->
+        <xsl:variable name="superGrade">
+          <xsl:call-template name="SuperelevatedGrade">
+            <xsl:with-param name="superWideningVals" select="$superWideningVals"/>
+            <xsl:with-param name="template" select="parent::Template"/>
+            <xsl:with-param name="templateElement" select="."/>
+            <xsl:with-param name="firstSuperedElement" select="$firstSuperedElement"/>
+            <xsl:with-param name="widenedDist" select="$widenedDist"/>
+            <xsl:with-param name="position" select="position()"/>
+            <xsl:with-param name="applyRollover" select="'false'"/>
+          </xsl:call-template>
+        </xsl:variable>
+
+        <xsl:element name="deltaElev" namespace="">
+          <xsl:choose>
+            <xsl:when test="string(number($superGrade)) = 'NaN'">  <!-- No grade - must be vertical -->
+              <xsl:value-of select="VerticalDistance"/>            <!-- Use the VerticalDistance value -->
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="$widenedDist * $superGrade div 100.0"/>  <!-- Apply superelevated grade to widened horiz distance -->
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:element>
+
+      </xsl:for-each>
+    </xsl:for-each>
+  </xsl:variable>
+  
+  <xsl:variable name="superedDeltaElev" select="sum(msxsl:node-set($superedDeltaElevs)/deltaElev)"/>
+  
+  <!-- Return the difference between the supered and unsupered delta elevation -->
+  <xsl:value-of select="$unsuperedDeltaElev - $superedDeltaElev"/>
+  
+</xsl:template>
+  
+  
+</xsl:stylesheet>

@@ -1,0 +1,660 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:msxsl="urn:schemas-microsoft-com:xslt">
+
+<!-- Functions available in this style sheet: -->
+<!--   LinesCross -->
+<!--   IntersectionPointForTwoLines -->
+<!--   PointToLineProjectionPoint - computes the position along a line of a point projected orthogonally onto the line -->
+<!--   DotProduct -->
+<!--   CrossProduct -->
+<!--   RectanglesOverlap1 -->
+<!--   RectanglesOverlap2 -->
+<!--   LeastSquaresCircleFit - computes centre point and radius for best fit circle through passed in points -->
+
+<!-- **************************************************************** -->
+<!-- ******** Determine if 2 line segments cross each other ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="LinesCross">
+  <xsl:param name="x1"/>
+  <xsl:param name="y1"/>
+  <xsl:param name="x2"/>
+  <xsl:param name="y2"/>
+  <xsl:param name="x3"/>
+  <xsl:param name="y3"/>
+  <xsl:param name="x4"/>
+  <xsl:param name="y4"/>
+
+  <xsl:variable name="param1" select="(($x4 - $x3) * ($y1 - $y3) - ($y4 - $y3) * ($x1 - $x3)) div
+                                      (($y4 - $y3) * ($x2 - $x1) - ($x4 - $x3) * ($y2 - $y1))"/>
+
+  <xsl:variable name="param2" select="(($x2 - $x1) * ($y1 - $y3) - ($y2 - $y1) * ($x1 - $x3)) div
+                                      (($y4 - $y3) * ($x2 - $x1) - ($x4 - $x3) * ($y2 - $y1))"/>
+
+  <xsl:choose>
+    <xsl:when test="($param1 &gt;= 0) and ($param1 &lt;= 1) and
+                    ($param2 &gt;= 0) and ($param2 &lt;= 1)">true</xsl:when>
+    <xsl:otherwise>false</xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *************** Intersection point for 2 lines ***************** -->
+<!-- **************************************************************** -->
+<xsl:template name="IntersectionPointForTwoLines">
+  <xsl:param name="x1"/>
+  <xsl:param name="y1"/>
+  <xsl:param name="x2"/>
+  <xsl:param name="y2"/>
+  <xsl:param name="x3"/>
+  <xsl:param name="y3"/>
+  <xsl:param name="x4"/>
+  <xsl:param name="y4"/>
+
+  <!-- Return a node set with the x (east) and y (north) values of the intersection point -->
+  
+  <xsl:variable name="param1" select="(($x4 - $x3) * ($y1 - $y3) - ($y4 - $y3) * ($x1 - $x3)) div
+                                      (($y4 - $y3) * ($x2 - $x1) - ($x4 - $x3) * ($y2 - $y1))"/>
+
+  <xsl:element name="x" namespace="">
+    <xsl:value-of select="$x1 + $param1 * ($x2 - $x1)"/>
+  </xsl:element>
+  
+  <xsl:element name="y" namespace="">
+    <xsl:value-of select="$y1 + $param1 * ($y2 - $y1)"/>
+  </xsl:element>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- **** Computes the position of a point projected onto a line **** -->
+<!-- **************************************************************** -->
+<xsl:template name="PointToLineProjectionPoint">
+  <xsl:param name="x1"/>
+  <xsl:param name="y1"/>
+  <xsl:param name="x2"/>
+  <xsl:param name="y2"/>
+  <xsl:param name="xPt"/>
+  <xsl:param name="yPt"/>
+
+  <xsl:variable name="sqrdLineLength" select="($x2 - $x1) * ($x2 - $x1) + ($y2 - $y1) * ($y2 - $y1)"/>
+
+  <xsl:choose>
+    <xsl:when test="$sqrdLineLength &gt; 0.000000001">
+      <xsl:variable name="u" select="(($xPt - $x1) * ($x2 - $x1) + ($yPt - $y1) * ($y2 - $y1)) div $sqrdLineLength"/>
+
+      <xsl:element name="x" namespace="">
+        <xsl:value-of select="$x1 + $u * ($x2 - $x1)"/>
+      </xsl:element>
+
+      <xsl:element name="y" namespace="">
+        <xsl:value-of select="$y1 + $u * ($y2 - $y1)"/>
+      </xsl:element>
+    </xsl:when>
+
+    <xsl:otherwise>  <!-- Return null coordinates for projected point -->
+      <xsl:element name="x" namespace=""></xsl:element>
+      <xsl:element name="y" namespace=""></xsl:element>
+    </xsl:otherwise>
+  </xsl:choose>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ****** Compute the dot product from the 3 points supplied ****** -->
+<!-- **************************************************************** -->
+<xsl:template name="DotProduct">
+  <xsl:param name="pt1X"/>
+  <xsl:param name="pt1Y"/>
+  <xsl:param name="pt1Z"/>
+  <xsl:param name="pt2X"/>
+  <xsl:param name="pt2Y"/>
+  <xsl:param name="pt2Z"/>
+  <xsl:param name="pt3X"/>
+  <xsl:param name="pt3Y"/>
+  <xsl:param name="pt3Z"/>
+
+  <xsl:choose>
+    <xsl:when test="(string(number($pt1Z)) != 'NaN') and (string(number($pt2Z)) != 'NaN') and (string(number($pt3Z)) != 'NaN')">
+      <xsl:value-of select="($pt2Y - $pt1Y) * ($pt3Y - $pt1Y) + ($pt2X - $pt1X) * ($pt3X - $pt1X) + ($pt2Z - $pt1Z) * ($pt3Z - $pt1Z)"/>
+    </xsl:when>
+    <xsl:otherwise>  <!-- 2D points -->
+      <xsl:value-of select="($pt2Y - $pt1Y) * ($pt3Y - $pt1Y) + ($pt2X - $pt1X) * ($pt3X - $pt1X)"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- **** Compute the dot product for the supplied point and line *** -->
+<!-- **************************************************************** -->
+<xsl:template name="CrossProduct">
+  <xsl:param name="pointX"/>
+  <xsl:param name="pointY"/>
+  <xsl:param name="startX"/>
+  <xsl:param name="startY"/>
+  <xsl:param name="endX"/>
+  <xsl:param name="endY"/>
+
+  <!-- Use the cross product to determine if the point is left of, right of or on    -->
+  <!-- the line:                                                                     -->
+  <!-- Less than 0 indicates a point on the left (of line start to end)              -->
+  <!-- Greater than 0 indicates a point on the right (of line start to end)          -->
+  <!-- Equal to 0 indicates a point on the line                                      -->
+
+  <xsl:value-of select="($endY - $startY) * ($pointX - $startX) - ($endX - $startX) * ($pointY - $startY)"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Determine if 2 rectangles overlap each other ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="RectanglesOverlap1">
+  <xsl:param name="rect1"/>
+  <xsl:param name="rect2"/>
+
+  <!-- The rect1 and rect2 parameters must be node-set variables consisting -->
+  <!-- of 4 vertices with the following element structure.                  -->
+  <!--   <vertex> -->
+  <!--     <x> -->
+  <!--     <y> -->
+  <!--   </vertex> -->
+
+  <!-- This routine will determine if the 2 rectangles (boundaries of two text elements) -->
+  <!-- overlap by checking whether each of the lines in rect1 crosses each of the lines  -->
+  <!-- in rect2.  If any lines cross each other the function will return true.           -->
+  <xsl:variable name="test">
+    <xsl:for-each select="msxsl:node-set($rect1)/vertex">
+      <xsl:variable name="rect1X1">
+        <xsl:choose>
+          <xsl:when test="position() = 1">  <!-- On first point grab the last point for other end of line -->
+            <xsl:value-of select="msxsl:node-set($rect1)/vertex[last()]/x"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="preceding-sibling::*[1]/x"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+      <xsl:variable name="rect1Y1">
+        <xsl:choose>
+          <xsl:when test="position() = 1">  <!-- On first point grab the last point for other end of line -->
+            <xsl:value-of select="msxsl:node-set($rect1)/vertex[last()]/y"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="preceding-sibling::*[1]/y"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+      <xsl:variable name="rect1X2" select="x"/>
+      <xsl:variable name="rect1Y2" select="y"/>
+
+      <xsl:for-each select="msxsl:node-set($rect2)/vertex">
+        <xsl:variable name="rect2X1">
+          <xsl:choose>
+            <xsl:when test="position() = 1">  <!-- On first point grab the last point for other end of line -->
+              <xsl:value-of select="msxsl:node-set($rect2)/vertex[last()]/x"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="preceding-sibling::*[1]/x"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+        <xsl:variable name="rect2Y1">
+          <xsl:choose>
+            <xsl:when test="position() = 1">  <!-- On first point grab the last point for other end of line -->
+              <xsl:value-of select="msxsl:node-set($rect2)/vertex[last()]/y"/>
+            </xsl:when>
+            <xsl:otherwise>
+              <xsl:value-of select="preceding-sibling::*[1]/y"/>
+            </xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+        <xsl:variable name="rect2X2" select="x"/>
+        <xsl:variable name="rect2Y2" select="y"/>
+
+        <xsl:variable name="crossTest">
+          <xsl:call-template name="LinesCross">
+            <xsl:with-param name="x1" select="$rect1X1"/>
+            <xsl:with-param name="y1" select="$rect1Y1"/>
+            <xsl:with-param name="x2" select="$rect1X2"/>
+            <xsl:with-param name="y2" select="$rect1Y2"/>
+            <xsl:with-param name="x3" select="$rect2X1"/>
+            <xsl:with-param name="y3" select="$rect2Y1"/>
+            <xsl:with-param name="x4" select="$rect2X2"/>
+            <xsl:with-param name="y4" select="$rect2Y2"/>
+          </xsl:call-template>
+        </xsl:variable>
+
+        <xsl:if test="$crossTest = 'true'">x</xsl:if>
+      </xsl:for-each>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:choose>
+    <xsl:when test="string-length($test) != 0">true</xsl:when>
+    <xsl:otherwise>false</xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Determine if 2 rectangles overlap each other ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="RectanglesOverlap2">
+  <xsl:param name="rect1"/>
+  <xsl:param name="rect2"/>
+
+  <!-- The rect1 and rect2 parameters must be node-set variables consisting -->
+  <!-- of 4 vertices with the following element structure.  The rectangle   -->
+  <!-- vertices must be in sequence around the rectangle.                   -->
+  <!--   <vertex> -->
+  <!--     <x> -->
+  <!--     <y> -->
+  <!--   </vertex> -->
+
+  <xsl:variable name="axis1">
+    <xsl:element name="x" namespace="">
+      <xsl:value-of select="msxsl:node-set($rect1)/vertex[1]/x - msxsl:node-set($rect1)/vertex[2]/x"/>
+    </xsl:element>
+    <xsl:element name="y" namespace="">
+      <xsl:value-of select="msxsl:node-set($rect1)/vertex[1]/y - msxsl:node-set($rect1)/vertex[2]/y"/>
+    </xsl:element>
+  </xsl:variable>
+
+  <xsl:variable name="axis2">
+    <xsl:element name="x" namespace="">
+      <xsl:value-of select="msxsl:node-set($rect1)/vertex[2]/x - msxsl:node-set($rect1)/vertex[3]/x"/>
+    </xsl:element>
+    <xsl:element name="y" namespace="">
+      <xsl:value-of select="msxsl:node-set($rect1)/vertex[2]/y - msxsl:node-set($rect1)/vertex[3]/y"/>
+    </xsl:element>
+  </xsl:variable>
+
+  <xsl:variable name="axis3">
+    <xsl:element name="x" namespace="">
+      <xsl:value-of select="msxsl:node-set($rect2)/vertex[1]/x - msxsl:node-set($rect2)/vertex[2]/x"/>
+    </xsl:element>
+    <xsl:element name="y" namespace="">
+      <xsl:value-of select="msxsl:node-set($rect2)/vertex[1]/y - msxsl:node-set($rect2)/vertex[2]/y"/>
+    </xsl:element>
+  </xsl:variable>
+
+  <xsl:variable name="axis4">
+    <xsl:element name="x" namespace="">
+      <xsl:value-of select="msxsl:node-set($rect2)/vertex[2]/x - msxsl:node-set($rect2)/vertex[3]/x"/>
+    </xsl:element>
+    <xsl:element name="y" namespace="">
+      <xsl:value-of select="msxsl:node-set($rect2)/vertex[2]/y - msxsl:node-set($rect2)/vertex[3]/y"/>
+    </xsl:element>
+  </xsl:variable>
+
+  <xsl:variable name="axis1ProjScalars">
+    <!-- Project the rect1 points onto axis1 and calc scalars along axis -->
+    <xsl:element name="rect1Pts" namespace="">
+      <xsl:for-each select="msxsl:node-set($rect1)/vertex">
+        <xsl:variable name="var" select="(x * msxsl:node-set($axis1)/x + y * msxsl:node-set($axis1)/y) div
+                                         (msxsl:node-set($axis1)/x * msxsl:node-set($axis1)/x + msxsl:node-set($axis1)/y * msxsl:node-set($axis1)/y)"/>
+        <xsl:variable name="x">
+          <xsl:value-of select="$var * msxsl:node-set($axis1)/x"/>
+        </xsl:variable>
+        <xsl:variable name="y">
+          <xsl:value-of select="$var * msxsl:node-set($axis1)/y"/>
+        </xsl:variable>
+
+        <xsl:element name="scalar" namespace="">
+          <xsl:value-of select="$x * msxsl:node-set($axis1)/x + $y * msxsl:node-set($axis1)/y"/>
+        </xsl:element>
+      </xsl:for-each>
+    </xsl:element>
+
+    <!-- Project the rect2 points onto axis1 and calc scalars along axis -->
+    <xsl:element name="rect2Pts" namespace="">
+      <xsl:for-each select="msxsl:node-set($rect2)/vertex">
+        <xsl:variable name="var" select="(x * msxsl:node-set($axis1)/x + y * msxsl:node-set($axis1)/y) div
+                                         (msxsl:node-set($axis1)/x * msxsl:node-set($axis1)/x + msxsl:node-set($axis1)/y * msxsl:node-set($axis1)/y)"/>
+        <xsl:variable name="x">
+          <xsl:value-of select="$var * msxsl:node-set($axis1)/x"/>
+        </xsl:variable>
+        <xsl:variable name="y">
+          <xsl:value-of select="$var * msxsl:node-set($axis1)/y"/>
+        </xsl:variable>
+
+        <xsl:element name="scalar" namespace="">
+          <xsl:value-of select="$x * msxsl:node-set($axis1)/x + $y * msxsl:node-set($axis1)/y"/>
+        </xsl:element>
+      </xsl:for-each>
+    </xsl:element>
+  </xsl:variable>
+
+  <xsl:variable name="axis2ProjScalars">
+    <!-- Project the rect1 points onto axis2 and calc scalars along axis -->
+    <xsl:element name="rect1Pts" namespace="">
+      <xsl:for-each select="msxsl:node-set($rect1)/vertex">
+        <xsl:variable name="var" select="(x * msxsl:node-set($axis2)/x + y * msxsl:node-set($axis2)/y) div
+                                         (msxsl:node-set($axis2)/x * msxsl:node-set($axis2)/x + msxsl:node-set($axis2)/y * msxsl:node-set($axis2)/y)"/>
+        <xsl:variable name="x">
+          <xsl:value-of select="$var * msxsl:node-set($axis2)/x"/>
+        </xsl:variable>
+        <xsl:variable name="y">
+          <xsl:value-of select="$var * msxsl:node-set($axis2)/y"/>
+        </xsl:variable>
+
+        <xsl:element name="scalar" namespace="">
+          <xsl:value-of select="$x * msxsl:node-set($axis2)/x + $y * msxsl:node-set($axis2)/y"/>
+        </xsl:element>
+      </xsl:for-each>
+    </xsl:element>
+
+    <!-- Project the rect2 points onto axis2 and calc scalars along axis -->
+    <xsl:element name="rect2Pts" namespace="">
+      <xsl:for-each select="msxsl:node-set($rect2)/vertex">
+        <xsl:variable name="var" select="(x * msxsl:node-set($axis2)/x + y * msxsl:node-set($axis2)/y) div
+                                         (msxsl:node-set($axis2)/x * msxsl:node-set($axis2)/x + msxsl:node-set($axis2)/y * msxsl:node-set($axis2)/y)"/>
+        <xsl:variable name="x">
+          <xsl:value-of select="$var * msxsl:node-set($axis2)/x"/>
+        </xsl:variable>
+        <xsl:variable name="y">
+          <xsl:value-of select="$var * msxsl:node-set($axis2)/y"/>
+        </xsl:variable>
+
+        <xsl:element name="scalar" namespace="">
+          <xsl:value-of select="$x * msxsl:node-set($axis2)/x + $y * msxsl:node-set($axis2)/y"/>
+        </xsl:element>
+      </xsl:for-each>
+    </xsl:element>
+  </xsl:variable>
+
+  <xsl:variable name="axis3ProjScalars">
+    <!-- Project the rect1 points onto axis3 and calc scalars along axis -->
+    <xsl:element name="rect1Pts" namespace="">
+      <xsl:for-each select="msxsl:node-set($rect1)/vertex">
+        <xsl:variable name="var" select="(x * msxsl:node-set($axis3)/x + y * msxsl:node-set($axis3)/y) div
+                                         (msxsl:node-set($axis3)/x * msxsl:node-set($axis3)/x + msxsl:node-set($axis3)/y * msxsl:node-set($axis3)/y)"/>
+        <xsl:variable name="x">
+          <xsl:value-of select="$var * msxsl:node-set($axis3)/x"/>
+        </xsl:variable>
+        <xsl:variable name="y">
+          <xsl:value-of select="$var * msxsl:node-set($axis3)/y"/>
+        </xsl:variable>
+
+        <xsl:element name="scalar" namespace="">
+          <xsl:value-of select="$x * msxsl:node-set($axis3)/x + $y * msxsl:node-set($axis3)/y"/>
+        </xsl:element>
+      </xsl:for-each>
+    </xsl:element>
+
+    <!-- Project the rect2 points onto axis3 and calc scalars along axis -->
+    <xsl:element name="rect2Pts" namespace="">
+      <xsl:for-each select="msxsl:node-set($rect2)/vertex">
+        <xsl:variable name="var" select="(x * msxsl:node-set($axis3)/x + y * msxsl:node-set($axis3)/y) div
+                                         (msxsl:node-set($axis3)/x * msxsl:node-set($axis3)/x + msxsl:node-set($axis3)/y * msxsl:node-set($axis3)/y)"/>
+        <xsl:variable name="x">
+          <xsl:value-of select="$var * msxsl:node-set($axis3)/x"/>
+        </xsl:variable>
+        <xsl:variable name="y">
+          <xsl:value-of select="$var * msxsl:node-set($axis3)/y"/>
+        </xsl:variable>
+
+        <xsl:element name="scalar" namespace="">
+          <xsl:value-of select="$x * msxsl:node-set($axis3)/x + $y * msxsl:node-set($axis3)/y"/>
+        </xsl:element>
+      </xsl:for-each>
+    </xsl:element>
+  </xsl:variable>
+
+  <xsl:variable name="axis4ProjScalars">
+    <!-- Project the rect1 points onto axis4 and calc scalars along axis -->
+    <xsl:element name="rect1Pts" namespace="">
+      <xsl:for-each select="msxsl:node-set($rect1)/vertex">
+        <xsl:variable name="var" select="(x * msxsl:node-set($axis4)/x + y * msxsl:node-set($axis4)/y) div
+                                         (msxsl:node-set($axis4)/x * msxsl:node-set($axis4)/x + msxsl:node-set($axis4)/y * msxsl:node-set($axis4)/y)"/>
+        <xsl:variable name="x">
+          <xsl:value-of select="$var * msxsl:node-set($axis4)/x"/>
+        </xsl:variable>
+        <xsl:variable name="y">
+          <xsl:value-of select="$var * msxsl:node-set($axis4)/y"/>
+        </xsl:variable>
+
+        <xsl:element name="scalar" namespace="">
+          <xsl:value-of select="$x * msxsl:node-set($axis4)/x + $y * msxsl:node-set($axis4)/y"/>
+        </xsl:element>
+      </xsl:for-each>
+    </xsl:element>
+
+    <!-- Project the rect2 points onto axis4 and calc scalars along axis -->
+    <xsl:element name="rect2Pts" namespace="">
+      <xsl:for-each select="msxsl:node-set($rect2)/vertex">
+        <xsl:variable name="var" select="(x * msxsl:node-set($axis4)/x + y * msxsl:node-set($axis4)/y) div
+                                         (msxsl:node-set($axis4)/x * msxsl:node-set($axis4)/x + msxsl:node-set($axis4)/y * msxsl:node-set($axis4)/y)"/>
+        <xsl:variable name="x">
+          <xsl:value-of select="$var * msxsl:node-set($axis4)/x"/>
+        </xsl:variable>
+        <xsl:variable name="y">
+          <xsl:value-of select="$var * msxsl:node-set($axis4)/y"/>
+        </xsl:variable>
+
+        <xsl:element name="scalar" namespace="">
+          <xsl:value-of select="$x * msxsl:node-set($axis4)/x + $y * msxsl:node-set($axis4)/y"/>
+        </xsl:element>
+      </xsl:for-each>
+    </xsl:element>
+  </xsl:variable>
+
+  <xsl:variable name="axis1OverlapCheck">
+    <xsl:variable name="sortedRect1Scalars">
+      <xsl:for-each select="msxsl:node-set($axis1ProjScalars)/rect1Pts/scalar">
+        <xsl:sort data-type="number" order="ascending" select="."/>
+        <xsl:copy-of select="."/>
+      </xsl:for-each>
+    </xsl:variable>
+
+    <xsl:variable name="sortedRect2Scalars">
+      <xsl:for-each select="msxsl:node-set($axis1ProjScalars)/rect2Pts/scalar">
+        <xsl:sort data-type="number" order="ascending" select="."/>
+        <xsl:copy-of select="."/>
+      </xsl:for-each>
+    </xsl:variable>
+
+    <xsl:choose>
+      <!-- If min intercept of rect2 is less than max intercept of rect 1 and greater than the min intercept of rect1 -->
+      <!-- then the rectangles overlap with respect to this axis so return true                                       -->
+      <xsl:when test="(msxsl:node-set($sortedRect2Scalars)/scalar[1] &lt; msxsl:node-set($sortedRect1Scalars)/scalar[last()]) and
+                      (msxsl:node-set($sortedRect2Scalars)/scalar[1] &gt; msxsl:node-set($sortedRect1Scalars)/scalar[1])">true</xsl:when>
+      <!-- If max intercept of rect2 is greater than min intercept of rect 1 and less than the max intercept of rect1 -->
+      <!-- then the rectangles overlap with respect to this axis so return true                                       -->
+      <xsl:when test="(msxsl:node-set($sortedRect2Scalars)/scalar[last()] &gt; msxsl:node-set($sortedRect1Scalars)/scalar[1]) and
+                      (msxsl:node-set($sortedRect2Scalars)/scalar[last()] &lt; msxsl:node-set($sortedRect1Scalars)/scalar[last()])">true</xsl:when>
+      <xsl:otherwise>false</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="axis2OverlapCheck">
+    <xsl:variable name="sortedRect1Scalars">
+      <xsl:for-each select="msxsl:node-set($axis2ProjScalars)/rect1Pts/scalar">
+        <xsl:sort data-type="number" order="ascending" select="."/>
+        <xsl:copy-of select="."/>
+      </xsl:for-each>
+    </xsl:variable>
+
+    <xsl:variable name="sortedRect2Scalars">
+      <xsl:for-each select="msxsl:node-set($axis2ProjScalars)/rect2Pts/scalar">
+        <xsl:sort data-type="number" order="ascending" select="."/>
+        <xsl:copy-of select="."/>
+      </xsl:for-each>
+    </xsl:variable>
+
+    <xsl:choose>
+      <!-- If min intercept of rect2 is less than max intercept of rect 1 and greater than the min intercept of rect1 -->
+      <!-- then the rectangles overlap with respect to this axis so return true                                       -->
+      <xsl:when test="(msxsl:node-set($sortedRect2Scalars)/scalar[1] &lt; msxsl:node-set($sortedRect1Scalars)/scalar[last()]) and
+                      (msxsl:node-set($sortedRect2Scalars)/scalar[1] &gt; msxsl:node-set($sortedRect1Scalars)/scalar[1])">true</xsl:when>
+      <!-- If max intercept of rect2 is greater than min intercept of rect 1 and less than the max intercept of rect1 -->
+      <!-- then the rectangles overlap with respect to this axis so return true                                       -->
+      <xsl:when test="(msxsl:node-set($sortedRect2Scalars)/scalar[last()] &gt; msxsl:node-set($sortedRect1Scalars)/scalar[1]) and
+                      (msxsl:node-set($sortedRect2Scalars)/scalar[last()] &lt; msxsl:node-set($sortedRect1Scalars)/scalar[last()])">true</xsl:when>
+      <xsl:otherwise>false</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="axis3OverlapCheck">
+    <xsl:variable name="sortedRect1Scalars">
+      <xsl:for-each select="msxsl:node-set($axis3ProjScalars)/rect1Pts/scalar">
+        <xsl:sort data-type="number" order="ascending" select="."/>
+        <xsl:copy-of select="."/>
+      </xsl:for-each>
+    </xsl:variable>
+
+    <xsl:variable name="sortedRect2Scalars">
+      <xsl:for-each select="msxsl:node-set($axis3ProjScalars)/rect2Pts/scalar">
+        <xsl:sort data-type="number" order="ascending" select="."/>
+        <xsl:copy-of select="."/>
+      </xsl:for-each>
+    </xsl:variable>
+
+    <xsl:choose>
+      <!-- If min intercept of rect2 is less than max intercept of rect 1 and greater than the min intercept of rect1 -->
+      <!-- then the rectangles overlap with respect to this axis so return true                                       -->
+      <xsl:when test="(msxsl:node-set($sortedRect2Scalars)/scalar[1] &lt; msxsl:node-set($sortedRect1Scalars)/scalar[last()]) and
+                      (msxsl:node-set($sortedRect2Scalars)/scalar[1] &gt; msxsl:node-set($sortedRect1Scalars)/scalar[1])">true</xsl:when>
+      <!-- If max intercept of rect2 is greater than min intercept of rect 1 and less than the max intercept of rect1 -->
+      <!-- then the rectangles overlap with respect to this axis so return true                                       -->
+      <xsl:when test="(msxsl:node-set($sortedRect2Scalars)/scalar[last()] &gt; msxsl:node-set($sortedRect1Scalars)/scalar[1]) and
+                      (msxsl:node-set($sortedRect2Scalars)/scalar[last()] &lt; msxsl:node-set($sortedRect1Scalars)/scalar[last()])">true</xsl:when>
+      <xsl:otherwise>false</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="axis4OverlapCheck">
+    <xsl:variable name="sortedRect1Scalars">
+      <xsl:for-each select="msxsl:node-set($axis4ProjScalars)/rect1Pts/scalar">
+        <xsl:sort data-type="number" order="ascending" select="."/>
+        <xsl:copy-of select="."/>
+      </xsl:for-each>
+    </xsl:variable>
+
+    <xsl:variable name="sortedRect2Scalars">
+      <xsl:for-each select="msxsl:node-set($axis4ProjScalars)/rect2Pts/scalar">
+        <xsl:sort data-type="number" order="ascending" select="."/>
+        <xsl:copy-of select="."/>
+      </xsl:for-each>
+    </xsl:variable>
+
+    <xsl:choose>
+      <!-- If min intercept of rect2 is less than max intercept of rect 1 and greater than the min intercept of rect1 -->
+      <!-- then the rectangles overlap with respect to this axis so return true                                       -->
+      <xsl:when test="(msxsl:node-set($sortedRect2Scalars)/scalar[1] &lt; msxsl:node-set($sortedRect1Scalars)/scalar[last()]) and
+                      (msxsl:node-set($sortedRect2Scalars)/scalar[1] &gt; msxsl:node-set($sortedRect1Scalars)/scalar[1])">true</xsl:when>
+      <!-- If max intercept of rect2 is greater than min intercept of rect 1 and less than the max intercept of rect1 -->
+      <!-- then the rectangles overlap with respect to this axis so return true                                       -->
+      <xsl:when test="(msxsl:node-set($sortedRect2Scalars)/scalar[last()] &gt; msxsl:node-set($sortedRect1Scalars)/scalar[1]) and
+                      (msxsl:node-set($sortedRect2Scalars)/scalar[last()] &lt; msxsl:node-set($sortedRect1Scalars)/scalar[last()])">true</xsl:when>
+      <xsl:otherwise>false</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:choose>
+    <xsl:when test="($axis1OverlapCheck = 'true') and ($axis2OverlapCheck = 'true') and
+                    ($axis3OverlapCheck = 'true') and ($axis4OverlapCheck = 'true')">true</xsl:when>
+    <xsl:otherwise>false</xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ***** Determine centre point and radius for best fit circle **** -->
+<!-- **************************************************************** -->
+<xsl:template name="LeastSquaresCircleFit">
+  <xsl:param name="points"/>
+
+  <!-- This routine expects the points node-set variable to have the structure: -->
+  <!--   <point>         -->
+  <!--     <x>value</x>  -->
+  <!--     <y>value</y>  -->
+  <!--   </point>        -->
+  <!-- The routine will return a node-set variable with the following elements: -->
+  <!--   centreX -->
+  <!--   centreY -->
+  <!--   radius  -->
+  
+  <!-- The algorithm is based on the 'Least-Squares Circle Fit' pdf document located at -->
+  <!-- http://www.dtcenter.org/met/users/docs/write_ups/circle_fit.pdf                  -->
+  <!-- Written by R. Bullock                                                            -->
+  
+  <xsl:variable name="avgX" select="sum(msxsl:node-set($points)/point/x) div count(msxsl:node-set($points)/point)"/>
+  <xsl:variable name="avgY" select="sum(msxsl:node-set($points)/point/y) div count(msxsl:node-set($points)/point)"/>
+
+  <xsl:variable name="uvPoints">
+    <xsl:for-each select="msxsl:node-set($points)/point">
+      <xsl:element name="point">
+        <xsl:variable name="u" select="x - $avgX"/>
+        <xsl:variable name="v" select="y - $avgY"/>
+
+        <xsl:element name="uu">
+          <xsl:value-of select="$u * $u"/>
+        </xsl:element>
+
+        <xsl:element name="uv">
+          <xsl:value-of select="$u * $v"/>
+        </xsl:element>
+
+        <xsl:element name="vv">
+          <xsl:value-of select="$v * $v"/>
+        </xsl:element>
+
+        <xsl:element name="uuu">
+          <xsl:value-of select="$u * $u * $u"/>
+        </xsl:element>
+
+        <xsl:element name="vvv">
+          <xsl:value-of select="$v * $v * $v"/>
+        </xsl:element>
+
+        <xsl:element name="uvv">
+          <xsl:value-of select="$u * $v * $v"/>
+        </xsl:element>
+
+        <xsl:element name="vuu">
+          <xsl:value-of select="$v * $u * $u"/>
+        </xsl:element>
+      </xsl:element>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:variable name="uuSum"  select="sum(msxsl:node-set($uvPoints)/point/uu)"/>
+  <xsl:variable name="uvSum"  select="sum(msxsl:node-set($uvPoints)/point/uv)"/>
+  <xsl:variable name="vvSum"  select="sum(msxsl:node-set($uvPoints)/point/vv)"/>
+  <xsl:variable name="uuuSum" select="sum(msxsl:node-set($uvPoints)/point/uuu)"/>
+  <xsl:variable name="vvvSum" select="sum(msxsl:node-set($uvPoints)/point/vvv)"/>
+  <xsl:variable name="uvvSum" select="sum(msxsl:node-set($uvPoints)/point/uvv)"/>
+  <xsl:variable name="vuuSum" select="sum(msxsl:node-set($uvPoints)/point/vuu)"/>
+
+  <xsl:variable name="k1" select="($uuuSum + $uvvSum) div 2.0"/>
+  <xsl:variable name="k2" select="($vvvSum + $vuuSum) div 2.0"/>
+
+  <xsl:variable name="vc" select="($k2 * $uuSum - $k1 * $uvSum) div ($vvSum * $uuSum - $uvSum * $uvSum)"/>
+  <xsl:variable name="uc" select="($k1 - $vc * $uvSum) div $uuSum"/>
+
+  <xsl:variable name="radius">
+    <xsl:call-template name="Sqrt">
+      <xsl:with-param name="num" select="$uc * $uc + $vc * $vc + ($uuSum + $vvSum) div count(msxsl:node-set($points)/point)"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:element name="centreX">
+    <xsl:value-of select="$uc + $avgX"/>
+  </xsl:element>
+
+  <xsl:element name="centreY">
+    <xsl:value-of select="$vc + $avgY"/>
+  </xsl:element>
+  
+  <xsl:element name="radius">
+    <xsl:value-of select="$radius"/>
+  </xsl:element>
+</xsl:template>
+
+
+</xsl:stylesheet>

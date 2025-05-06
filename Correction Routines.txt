@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:msxsl="urn:schemas-microsoft-com:xslt">
+
+<!-- Functions available in this style sheet: -->
+<!--   CorrectedDistance - corrects slope distance for prism constant, atmospheric ppm and station scale factor (applied based on horizontal distance component) -->
+<!--   CorrectedVerticalAngle - corrects vertical angle for curvature and refraction -->
+
+
+<!-- **************************************************************** -->
+<!-- ***************** Apply Corrections To Distance **************** -->
+<!-- **************************************************************** -->
+<xsl:template name="CorrectedDistance">
+  <xsl:param name="slopeDist"/>
+  <xsl:param name="prismConst" select="0"/>
+  <xsl:param name="atmosPPM" select="0"/>
+  <xsl:param name="stationScaleFactor" select="1.0"/>
+  <xsl:param name="vertAngle" select="90.0"/>
+  <xsl:param name="applyPrismConst" select="'true'"/>
+  <xsl:param name="applyPPM" select="'true'"/>
+  <xsl:param name="applyStationSF" select="'true'"/>
+
+  <!-- All the distances in the JobXML file are raw distances so apply the current     -->
+  <!-- prism constant atmospheric correction and station scale factor to the distance. -->
+  <xsl:variable name="currPrismConst">
+    <xsl:choose>
+      <xsl:when test="($applyPrismConst = 'true') and (string(number($prismConst)) != 'NaN')">
+        <xsl:value-of select="$prismConst"/>
+      </xsl:when>
+      <xsl:otherwise>0</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="currAtmosPPM">
+    <xsl:choose>
+      <xsl:when test="($applyPPM = 'true') and (string(number($atmosPPM)) != 'NaN')">
+        <xsl:value-of select="$atmosPPM"/>
+      </xsl:when>
+      <xsl:otherwise>0</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <!-- Apply the atmospheric ppm and prism constant distance corrections -->
+  <xsl:variable name="atmosAndPrismConstCorrSlopeDist" select="$slopeDist + $currPrismConst + ($currAtmosPPM div 1000000.0 * $slopeDist)"/>
+  
+  <xsl:choose>
+    <xsl:when test="($applyStationSF = 'true') and (string(number($stationScaleFactor)) != 'NaN') and
+                    (string(number($vertAngle)) != 'NaN')">
+      <!-- The station scale factor should only be applied to the horizontal component -->
+      <!-- of the distance so compute the correction based on the horizontal distance  -->
+      <!-- so it can be applied later.                                                 -->
+      <xsl:variable name="sinVA">
+        <xsl:call-template name="Sine">
+          <xsl:with-param name="theAngle" select="$vertAngle * $Pi div 180.0"/>
+        </xsl:call-template>
+      </xsl:variable>
+      
+      <xsl:variable name="cosVA">
+        <xsl:call-template name="Cosine">
+          <xsl:with-param name="theAngle" select="$vertAngle * $Pi div 180.0"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="hzDist" select="$slopeDist * $sinVA * $stationScaleFactor"/> <!-- Apply station scale factor to horizontal component -->
+      <xsl:variable name="vtDist" select="$slopeDist * $cosVA"/>
+      <!-- Now recombine the horizontal and vertical components into the resultant slope distance using Pythagoras -->
+      <xsl:variable name="newSD">
+        <xsl:call-template name="Sqrt">
+          <xsl:with-param name="num" select="($hzDist * $hzDist) + ($vtDist * $vtDist)"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <!-- Apply the atmospheric ppm and prism constant corrections to the scale corrected slope distance -->
+      <xsl:value-of select="$newSD + $currPrismConst + ($currAtmosPPM div 1000000.0 * $newSD)"/>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="$atmosAndPrismConstCorrSlopeDist"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Apply Curvature and Refraction to Vert Angle ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="CorrectedVerticalAngle">
+  <xsl:param name="vertAngle"/>
+  <xsl:param name="slopeDist"/>
+  <xsl:param name="atmosRecord"/>  <!-- Fetch the appropriate AtmosphereRecord and pass it in as a parameter -->
+
+  <xsl:variable name="radiansVertAngle" select="$vertAngle * $Pi div 180.0"/>
+
+  <!-- Get the coefficient of refraction from the passed in -->
+  <!-- atmosRecord that applies to this observation.        -->
+  <xsl:variable name="refracCoeff">
+    <xsl:variable name="fileValue">
+      <xsl:choose>
+        <xsl:when test="msxsl:node-set($atmosRecord)/AtmosphereRecord/RefractionCoefficient">
+          <xsl:value-of select="msxsl:node-set($atmosRecord)/AtmosphereRecord/RefractionCoefficient"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="msxsl:node-set($atmosRecord)/AtmosphereRecord/Refraction"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+    <xsl:choose>
+      <xsl:when test="string(number($fileValue)) != 'NaN'">
+        <xsl:value-of select="$fileValue"/>
+      </xsl:when>
+      <xsl:otherwise>0</xsl:otherwise>  <!-- Null refraction coefficient - set to zero so no refraction correction applied -->
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="curvatureVal">
+    <xsl:choose>
+      <xsl:when test="msxsl:node-set($atmosRecord)/AtmosphereRecord/ApplyEarthCurvatureCorrection">
+        <xsl:choose>
+          <xsl:when test="msxsl:node-set($atmosRecord)/AtmosphereRecord/ApplyEarthCurvatureCorrection = 'true'">1</xsl:when>
+          <xsl:otherwise>0</xsl:otherwise>
+        </xsl:choose>
+      </xsl:when>
+      <xsl:otherwise>1</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="refractionVal">
+    <xsl:choose>
+      <xsl:when test="msxsl:node-set($atmosRecord)/AtmosphereRecord/ApplyRefractionCorrection">
+        <xsl:choose>
+          <xsl:when test="msxsl:node-set($atmosRecord)/AtmosphereRecord/ApplyRefractionCorrection = 'true'">1</xsl:when>
+          <xsl:otherwise>0</xsl:otherwise>
+        </xsl:choose>
+      </xsl:when>
+      <xsl:otherwise>1</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="corrVertAngleInRadians">
+    <xsl:choose>
+      <xsl:when test="string(number($slopeDist)) != 'NaN'">
+        <xsl:choose>
+          <xsl:when test="$vertAngle &lt; 180.0">  <!-- Face 1 observation -->
+            <xsl:value-of select="$radiansVertAngle - (($slopeDist * ($curvatureVal - ($refractionVal * $refracCoeff))) div (2.0 * 6378137.0))"/> <!-- Use WGS-83 semi-major axis as earth radius value -->
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="$radiansVertAngle + (($slopeDist * ($curvatureVal - ($refractionVal * $refracCoeff))) div (2.0 * 6378137.0))"/> <!-- Use WGS-83 semi-major axis as earth radius value -->
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:when>
+      <xsl:otherwise> <!-- Can't compute correction without a distance - return uncorrected value -->
+        <xsl:value-of select="$radiansVertAngle"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:value-of select="$corrVertAngleInRadians * 180.0 div $Pi"/>  <!-- Convert back to decimal degrees -->
+</xsl:template>
+
+
+</xsl:stylesheet>

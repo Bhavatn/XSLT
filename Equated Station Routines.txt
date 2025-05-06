@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:msxsl="urn:schemas-microsoft-com:xslt">
+
+<!-- Functions available in this style sheet: -->
+<!--   EquatedStationValue - returns the equated station and zone for a given true station -->
+<!--   TrueStationValue - returns the true station for a given equated station and zone -->
+
+<!-- **************************************************************** -->
+<!-- ******* Return equated station value for a given station ******* -->
+<!-- **************************************************************** -->
+<xsl:template name="EquatedStationValue">
+  <xsl:param name="station"/>
+  <xsl:param name="stationEquations"/>
+
+  <!-- Returns a node-set variable with the elements:                                                  -->
+  <!--   stnValue - the equated station value                                                          -->
+  <!--   zone - the equated station zone                                                               -->
+  <!--   aheadStation - the ahead station for the zone (only present when equated station found)       -->
+  <!--   direction - the direction (Increasing or Decreasing, only present when equated station found) -->
+
+  <xsl:choose>
+    <xsl:when test="count(msxsl:node-set($stationEquations)/ApplyStationEquation) = 0">
+      <!-- No station equations defined - just return the passed in station -->
+      <xsl:element name="stnValue" namespace="">
+        <xsl:value-of select="$station"/>
+      </xsl:element>
+      <xsl:element name="zone" namespace=""></xsl:element>
+    </xsl:when>
+
+    <xsl:otherwise>
+      <xsl:choose>
+        <xsl:when test="$station &lt; msxsl:node-set($stationEquations)/ApplyStationEquation[1]/BackStation">
+          <!-- Passed in station is before the first station equation (zone 1) -->
+          <xsl:element name="stnValue" namespace="">
+            <xsl:value-of select="$station"/>
+          </xsl:element>
+          <xsl:element name="zone" namespace="">1</xsl:element>
+          <xsl:element name="direction" namespace="">Increasing</xsl:element>
+        </xsl:when>
+
+        <xsl:otherwise>  <!-- Must be a station beyond the first station equation zone -->
+          <xsl:variable name="equatedStns">
+            <xsl:for-each select="msxsl:node-set($stationEquations)/ApplyStationEquation">
+              <xsl:choose>
+                <xsl:when test="($station &lt; following-sibling::*[1]/InternalStation) or (position() = last())">
+                  <xsl:variable name="deltaStn" select="$station - InternalStation"/>
+                  <xsl:element name="item" namespace="">
+                    <xsl:element name="stnValue" namespace="">
+                      <xsl:choose>
+                        <xsl:when test="Direction = 'Increasing'">
+                          <xsl:value-of select="AheadStation + $deltaStn"/>
+                        </xsl:when>
+                        <xsl:otherwise>
+                          <xsl:value-of select="AheadStation - $deltaStn"/>
+                        </xsl:otherwise>
+                      </xsl:choose>
+                    </xsl:element>
+                    <xsl:element name="zone" namespace="">
+                      <xsl:value-of select="position() + 1"/>
+                    </xsl:element>
+                    <xsl:element name="aheadStation" namespace="">
+                      <xsl:value-of select="AheadStation"/>
+                    </xsl:element>
+                    <xsl:element name="direction" namespace="">
+                      <xsl:value-of select="Direction"/>
+                    </xsl:element>
+                  </xsl:element>
+                </xsl:when>
+              </xsl:choose>
+            </xsl:for-each>
+          </xsl:variable>
+
+          <xsl:element name="stnValue" namespace="">
+            <xsl:value-of select="msxsl:node-set($equatedStns)/item[1]/stnValue"/>
+          </xsl:element>
+          <xsl:element name="zone" namespace="">
+            <xsl:value-of select="msxsl:node-set($equatedStns)/item[1]/zone"/>
+          </xsl:element>
+          <xsl:element name="aheadStation" namespace="">
+            <xsl:value-of select="msxsl:node-set($equatedStns)/item[1]/aheadStation"/>
+          </xsl:element>
+          <xsl:element name="direction" namespace="">
+            <xsl:value-of select="msxsl:node-set($equatedStns)/item[1]/direction"/>
+          </xsl:element>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *** Return true station for a given equated station and zone *** -->
+<!-- **************************************************************** -->
+<xsl:template name="TrueStationValue">
+  <xsl:param name="equatedStation"/>
+  <xsl:param name="zone"/>
+  <xsl:param name="stationEquations"/>
+
+  <xsl:choose>
+    <xsl:when test="count(msxsl:node-set($stationEquations)/ApplyStationEquation) = 0">
+      <!-- No station equations defined - just return the passed in equated station -->
+      <xsl:value-of select="$equatedStation"/>
+    </xsl:when>
+
+    <xsl:otherwise>
+      <xsl:choose>
+        <xsl:when test="$zone = 1">  <!-- Equated station is in the first zone - return the passed in equated station -->
+          <xsl:if test="$equatedStation &lt; msxsl:node-set($stationEquations)/ApplyStationEquation[1]/BackStation">
+            <!-- The passed in equatedStation is before the first specified BackStation -->
+            <xsl:value-of select="$equatedStation"/>
+          </xsl:if>
+        </xsl:when>
+
+        <xsl:otherwise>
+          <xsl:for-each select="msxsl:node-set($stationEquations)/ApplyStationEquation[number($zone - 1)]">
+            <xsl:if test="((Direction = 'Increasing') and ($equatedStation &gt; AheadStation)) or
+                          ((Direction = 'Decreasing') and ($equatedStation &lt; AheadStation))">
+              <!-- The passed in equatedStation is in the correct relationship to the AheadStation -->
+              <!-- Now chack that if this is not the last zone the equatedStation is before the start of the next one -->
+              <xsl:variable name="validValue">
+                <xsl:choose>
+                  <xsl:when test="$zone &lt; count(msxsl:node-set($stationEquations)/ApplyStationEquation) + 1">
+                    <xsl:if test="((Direction = 'Increasing') and ($equatedStation &lt; following-sibling::*[1]/BackStation)) or
+                                  ((Direction = 'Decreasing') and ($equatedStation &gt; following-sibling::*[1]/BackStation))">
+                      <xsl:value-of select="'true'"/>
+                    </xsl:if>
+                  </xsl:when>
+                  <xsl:otherwise>true</xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+              <xsl:if test="$validValue = 'true'">
+                <xsl:variable name="deltaStn" select="concat(substring('-',2 - (($equatedStation - AheadStation) &lt; 0)), '1') * ($equatedStation - AheadStation)"/>
+                <xsl:value-of select="InternalStation + $deltaStn"/>
+              </xsl:if>
+            </xsl:if>
+          </xsl:for-each>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+</xsl:stylesheet>

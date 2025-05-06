@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+
+<!-- Functions available in this style sheet: -->
+<!--   ecefX -->
+<!--   ecefY -->
+<!--   ecefZ -->
+<!--   LatFromXYZ (latitude value returned in radians) -->
+<!--   LongFromXYZ (longitude value returned in radians) -->
+<!--   HeightFromXYZ -->
+<!--   pVar (called from LatFromXYZ, LongFromXYZ and HeightFromXYZ) -->
+<!--   RadiusOfCurvature (called from ecefX, ecefY and ecefZ) -->
+
+
+<xsl:variable name="WGS84SemiMajorAxis" select="6378137.000"/>
+<xsl:variable name="WGS84Flattening" select="298.257222101"/>
+<xsl:variable name="WGS84EccentricitySquared" select="0.00669438002290"/>
+
+<!-- **************************************************************** -->
+<!-- ****************** Return the ECEF X value ********************* -->
+<!-- **************************************************************** -->
+<xsl:template name="ecefX">
+  <xsl:param name="latitude"/>   <!-- latitude value required in decimal degrees -->
+  <xsl:param name="longitude"/>  <!-- longitude value required in decimal degrees -->
+  <xsl:param name="height"/>
+
+  <!-- Get the latitude in radians -->
+  <xsl:variable name="radLat">
+    <xsl:call-template name="AngleInRadians">
+      <xsl:with-param name="theAngle" select="$latitude"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <!-- Get the longitude in radians -->
+  <xsl:variable name="radLong">
+    <xsl:call-template name="AngleInRadians">
+      <xsl:with-param name="theAngle" select="$longitude"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="N">
+    <xsl:call-template name="RadiusOfCurvature">
+      <xsl:with-param name="latitude" select="$radLat"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="cosLat">
+    <!-- Cosine of latitude = sin(Pi / 2 - latitude) -->
+    <xsl:call-template name="Sine">
+      <xsl:with-param name="theAngle" select="$Pi div 2.0 - $radLat"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="cosLong">
+    <!-- Cosine of longitude = sin(Pi / 2 - longitude) -->
+    <xsl:call-template name="Sine">
+      <xsl:with-param name="theAngle" select="$Pi div 2.0 - $radLong"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:value-of select="($N + $height) * $cosLat * $cosLong"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ****************** Return the ECEF Y value ********************* -->
+<!-- **************************************************************** -->
+<xsl:template name="ecefY">
+  <xsl:param name="latitude"/>   <!-- latitude value required in decimal degrees -->
+  <xsl:param name="longitude"/>  <!-- longitude value required in decimal degrees -->
+  <xsl:param name="height"/>
+
+  <!-- Get the latitude in radians -->
+  <xsl:variable name="radLat">
+    <xsl:call-template name="AngleInRadians">
+      <xsl:with-param name="theAngle" select="$latitude"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <!-- Get the longitude in radians -->
+  <xsl:variable name="radLong">
+    <xsl:call-template name="AngleInRadians">
+      <xsl:with-param name="theAngle" select="$longitude"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="N">
+    <xsl:call-template name="RadiusOfCurvature">
+      <xsl:with-param name="latitude" select="$radLat"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="cosLat">
+    <!-- Cosine of latitude = sin(Pi / 2 - latitude) -->
+    <xsl:call-template name="Sine">
+      <xsl:with-param name="theAngle" select="$Pi div 2.0 - $radLat"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="sinLong">
+    <xsl:call-template name="Sine">
+      <xsl:with-param name="theAngle" select="$radLong"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:value-of select="($N + $height) * $cosLat * $sinLong"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ****************** Return the ECEF Z value ********************* -->
+<!-- **************************************************************** -->
+<xsl:template name="ecefZ">
+  <xsl:param name="latitude"/>  <!-- latitude value required in decimal degrees -->  
+  <xsl:param name="height"/>
+
+  <!-- Get the latitude in radians -->
+  <xsl:variable name="radLat">
+    <xsl:call-template name="AngleInRadians">
+      <xsl:with-param name="theAngle" select="$latitude"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="N">
+    <xsl:call-template name="RadiusOfCurvature">
+      <xsl:with-param name="latitude" select="$radLat"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="sinLat">
+    <xsl:call-template name="Sine">
+      <xsl:with-param name="theAngle" select="$radLat"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:value-of select="($N * (1.0 - $WGS84EccentricitySquared) + $height) * $sinLat"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Compute the Latitude from the ECEF X,Y,Z ************ -->
+<!-- **************************************************************** -->
+<xsl:template name="LatFromXYZ">  <!-- Returns latitude value in radians -->
+  <xsl:param name="X"/>
+  <xsl:param name="Y"/>
+  <xsl:param name="Z"/>
+
+  <xsl:variable name="p">
+    <xsl:call-template name="pVar">
+      <xsl:with-param name="X" select="$X"/>
+      <xsl:with-param name="Y" select="$Y"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="r">
+    <xsl:call-template name="Sqrt">
+      <xsl:with-param name="num" select="$p * $p + $Z * $Z"/>
+      <xsl:with-param name="maxiter" select="30"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="oneMinusf" select="1 - 1 div $WGS84Flattening"/>
+
+  <xsl:variable name="u">
+    <xsl:call-template name="ArcTanSeries">
+      <xsl:with-param name="tanVal" select="($Z div $p) *
+                                            ($oneMinusf + $WGS84EccentricitySquared * $WGS84SemiMajorAxis div $r)"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="sinu">
+    <xsl:call-template name="Sine">
+      <xsl:with-param name="theAngle" select="$u"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="sinuCubed" select="$sinu * $sinu * $sinu"/>
+
+  <xsl:variable name="cosu">
+    <xsl:call-template name="Cosine">
+      <xsl:with-param name="theAngle" select="$u"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="cosuCubed" select="$cosu * $cosu * $cosu"/>
+
+  <xsl:variable name="rawLat">
+    <xsl:call-template name="ArcTanSeries">
+      <xsl:with-param name="tanVal" select="($Z * $oneMinusf + $WGS84EccentricitySquared * $WGS84SemiMajorAxis * $sinuCubed) div
+                                            ($oneMinusf * ($p - $WGS84EccentricitySquared * $WGS84SemiMajorAxis * $cosuCubed))"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:call-template name="RadianAngleBetweenLimits">
+    <xsl:with-param name="anAngle" select="$rawLat"/>
+    <xsl:with-param name="minVal" select="-1 * $halfPi"/>
+    <xsl:with-param name="maxVal" select="$halfPi"/>
+    <xsl:with-param name="incVal" select="$halfPi"/>
+  </xsl:call-template>
+  <!-- Returns latitude value in radians -->
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Compute the Longitude from the ECEF X,Y,Z *********** -->
+<!-- **************************************************************** -->
+<xsl:template name="LongFromXYZ">  <!-- Returns longitude value in radians -->
+  <xsl:param name="X"/>
+  <xsl:param name="Y"/>
+
+  <xsl:variable name="absX" select="concat(substring('-',2 - ($X &lt; 0)), '1') * $X"/>
+  <xsl:variable name="absY" select="concat(substring('-',2 - ($Y &lt; 0)), '1') * $Y"/>
+
+  <xsl:variable name="rawLong">
+    <xsl:call-template name="ArcTanSeries">
+      <xsl:with-param name="tanVal" select="$absY div $absX"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="rawLong1">
+    <xsl:choose>
+      <xsl:when test="$X &lt; 0.0">
+        <xsl:value-of select="$Pi - $rawLong"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$rawLong"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="rawLong2">
+    <xsl:choose>
+      <xsl:when test="$Y &lt; 0.0">
+        <xsl:value-of select="-1.0 * $rawLong1"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$rawLong1"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:call-template name="RadianAngleBetweenLimits">
+    <xsl:with-param name="anAngle" select="$rawLong2"/>
+    <xsl:with-param name="minVal" select="-1 * $Pi"/>
+    <xsl:with-param name="maxVal" select="$Pi"/>
+    <xsl:with-param name="incVal" select="2.0 * $Pi"/>
+  </xsl:call-template>
+  <!-- Returns longitude value in radians -->
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************ Compute the Height from the ECEF X,Y,Z ************ -->
+<!-- **************************************************************** -->
+<xsl:template name="HeightFromXYZ">
+  <xsl:param name="X"/>
+  <xsl:param name="Y"/>
+  <xsl:param name="Z"/>
+  <xsl:param name="lat"/>  <!-- lat value required in radians -->
+
+  <xsl:variable name="p">
+    <xsl:call-template name="pVar">
+      <xsl:with-param name="X" select="$X"/>
+      <xsl:with-param name="Y" select="$Y"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="cosLat">
+    <xsl:call-template name="Cosine">
+      <xsl:with-param name="theAngle" select="$lat"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="sinLat">
+    <xsl:call-template name="Sine">
+      <xsl:with-param name="theAngle" select="$lat"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="tempVal">
+    <xsl:call-template name="Sqrt">
+      <xsl:with-param name="num" select="1.0 - $WGS84EccentricitySquared * $sinLat * $sinLat"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:value-of select="$p * $cosLat + $Z * $sinLat - $WGS84SemiMajorAxis * $tempVal"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *** An intermediate variable of X,Y,Z to lat,long,height conv ** -->
+<!-- **************************************************************** -->
+<xsl:template name="pVar">
+  <xsl:param name="X"/>
+  <xsl:param name="Y"/>
+
+  <xsl:call-template name="Sqrt">
+    <xsl:with-param name="num" select="$X * $X + $Y * $Y"/>
+    <xsl:with-param name="maxiter" select="30"/>
+  </xsl:call-template>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******* Return the Radius of Curvature in Prime Vertical ******* -->
+<!-- **************************************************************** -->
+<xsl:template name="RadiusOfCurvature">
+  <xsl:param name="latitude"/>   <!-- Already converted to radians -->
+
+  <xsl:variable name="sinLat">
+    <xsl:call-template name="Sine">
+      <xsl:with-param name="theAngle" select="$latitude"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="sinLatSquared">
+    <xsl:value-of select="$sinLat * $sinLat"/>
+  </xsl:variable>
+
+  <xsl:variable name="tempVal">
+    <xsl:call-template name="Sqrt">
+      <xsl:with-param name="num" select="1.0 - $WGS84EccentricitySquared * $sinLatSquared"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:value-of select="$WGS84SemiMajorAxis div $tempVal"/>
+</xsl:template>
+
+
+</xsl:stylesheet>

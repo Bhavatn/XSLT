@@ -1,0 +1,835 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:msxsl="urn:schemas-microsoft-com:xslt">
+
+<!-- Functions available in this style sheet: -->
+<!--   GPSTimeAsTimeStamp        uses relationship between PointRecord TimeStamp attributes and GPS time values -->
+<!--   GPSTimeDirectToTimeStamp  converts GPS time values directly using the Time zone details -->
+<!--   GPSTimeToUTCOffset        returns the offset between GPS and UTC time for the passed in Julian day -->
+<!--   TimeStampToJulianDay -->
+<!--   JulianDayToTimeStamp -->
+<!--   ElapsedSeconds -->
+<!--   DurationTime -->
+<!--   FormatDate - formats dates based on passed in format string -->
+<!--   DateToJulianDay -->
+<!--   TimeStampToUTCTimeStamp -->
+
+
+<!-- **************************************************************** -->
+<!-- ****** Determine the time stamp for the supplied GPS time ****** -->
+<!-- **************************************************************** -->
+<xsl:template name="GPSTimeAsTimeStamp">
+  <xsl:param name="gpsTime"/>
+  <xsl:param name="secDecPlFmt" select="'00.0'"/>
+
+  <xsl:variable name="secsPerDay" select="86400"/>
+  <xsl:variable name="secsPerWeek" select="$secsPerDay * 7"/>
+
+  <!-- Set up a node set variable to hold the Time Stamp to GPS time  -->
+  <!-- relationship using the first GPS initialisation record         -->
+  <xsl:variable name="initialGPSTime">
+    <xsl:for-each select="/JOBFile/FieldBook/InitialisationRecord[1]">
+      <xsl:element name="gpsWeek" namespace="">
+        <xsl:value-of select="Time/GPSWeek"/>
+      </xsl:element>
+      <xsl:element name="gpsSeconds" namespace="">
+        <xsl:value-of select="Time/Seconds"/>
+      </xsl:element>
+      <!-- Hold the TimeStamp value as its equivalent Julian Day value -->
+      <xsl:element name="julianDay" namespace="">
+        <xsl:call-template name="TimeStampToJulianDay">
+          <xsl:with-param name="timeStamp" select="@TimeStamp"/>
+        </xsl:call-template>
+      </xsl:element>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:variable name="elapsedSeconds">
+    <xsl:choose>
+      <xsl:when test="number(msxsl:node-set($initialGPSTime)/gpsWeek) = number(msxsl:node-set($gpsTime)/GPSWeek)">
+        <!-- Same GPS week - simply subtract GPS seconds value to get elapsed seconds -->
+        <xsl:value-of select="number(msxsl:node-set($gpsTime)/Seconds) - number(msxsl:node-set($initialGPSTime)/gpsSeconds)"/>
+      </xsl:when>
+      <xsl:otherwise>  <!-- Different GPS weeks -->
+        <!-- Get remainder seconds to end of GPS week for the initial GPS time -->
+        <xsl:variable name="remainderSecs" select="$secsPerWeek - number(msxsl:node-set($initialGPSTime)/gpsSeconds)"/>
+        <!-- Get the number of seconds for any intervening weeks -->
+        <xsl:variable name="interveningWeeksSecs" select="$secsPerWeek * (number(msxsl:node-set($gpsTime)/GPSWeek) -
+                                                                          number(msxsl:node-set($initialGPSTime)/gpsWeek) -1)"/>
+        <xsl:value-of select="$remainderSecs + $interveningWeeksSecs + number(msxsl:node-set($gpsTime)/Seconds)"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <!-- Now we need to add the elapsedSeconds onto the TimeStamp Julian Day value in the initialGPSTime variable -->
+  <xsl:variable name="elapsedSecondsInDays" select="$elapsedSeconds div $secsPerDay"/>
+  <xsl:variable name="newJulianDayVal" select="number(msxsl:node-set($initialGPSTime)/julianDay) + $elapsedSecondsInDays"/>
+
+  <!-- Return this new Julian Day value converted back to a time stamp -->
+  <xsl:call-template name="JulianDayToTimeStamp">
+    <xsl:with-param name="julianDay" select="$newJulianDayVal"/>
+    <xsl:with-param name="secDecPlFmt" select="$secDecPlFmt"/>
+  </xsl:call-template>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- **** Directly determine time stamp for the supplied GPS time *** -->
+<!-- **************************************************************** -->
+<xsl:template name="GPSTimeDirectToTimeStamp">
+  <xsl:param name="gpsTime"/>
+  <xsl:param name="secDecPlFmt" select="'00.0'"/>
+
+  <xsl:variable name="secsPerDay" select="86400"/>
+  <xsl:variable name="secsPerWeek" select="$secsPerDay * 7"/>
+  <xsl:variable name="startOfGPSTimeAsJulianDay" select="2444244.5"/>
+
+  <xsl:variable name="timeZoneShift">  <!-- In hours -->
+    <xsl:choose>
+      <xsl:when test="string(number(/JOBFile/Environment/TimeZone/HoursToUTC)) != 'NaN'">
+        <xsl:value-of select="/JOBFile/Environment/TimeZone/HoursToUTC"/>
+      </xsl:when>
+      <xsl:otherwise>0</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+  <xsl:variable name="timeZoneShiftAsFractionOfDay" select="$timeZoneShift div 24"/>
+
+  <xsl:variable name="daysWithinWeek" select="floor(msxsl:node-set($gpsTime)/Seconds div $secsPerDay)"/>
+  <xsl:variable name="gpsTimeAsJulianDay" select="$startOfGPSTimeAsJulianDay +
+                                                  msxsl:node-set($gpsTime)/GPSWeek * 7 +
+                                                  $daysWithinWeek +
+                                                  (msxsl:node-set($gpsTime)/Seconds - $daysWithinWeek * $secsPerDay) div $secsPerDay -
+                                                  $timeZoneShiftAsFractionOfDay"/>
+
+  <!-- Allow for the offset from GPS time to UTC -->
+  <xsl:variable name="GPSTimeOffset">
+    <xsl:call-template name="GPSTimeToUTCOffset">
+      <xsl:with-param name="julianDay" select="$gpsTimeAsJulianDay"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <!-- Return the established Julian day as a time stamp -->
+  <xsl:call-template name="JulianDayToTimeStamp">
+    <xsl:with-param name="julianDay" select="$gpsTimeAsJulianDay + ($GPSTimeOffset div $secsPerDay)"/>
+    <xsl:with-param name="secDecPlFmt" select="$secDecPlFmt"/>
+  </xsl:call-template>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Return the offset between GPS time and UTC ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="GPSTimeToUTCOffset">
+  <xsl:param name="julianDay"/>
+  <xsl:param name="GPSTimeToUTC" select="'true'"/>
+
+  <xsl:variable name="offset">
+    <xsl:choose>
+      <xsl:when test="$julianDay &lt; 2444244.5">0</xsl:when>                                     <!-- Prior to Jan 6 1980 - should be impossible -->
+      <xsl:when test="($julianDay &gt;= 2444244.5) and ($julianDay &lt; 2444786.5)">1</xsl:when>  <!-- Jan 6 1980 - Jul 1 1981 -->
+      <xsl:when test="($julianDay &gt;= 2444786.5) and ($julianDay &lt; 2445151.5)">2</xsl:when>  <!-- Jul 1 1981 - Jul 1 1982 -->
+      <xsl:when test="($julianDay &gt;= 2445151.5) and ($julianDay &lt; 2445516.5)">3</xsl:when>  <!-- Jul 1 1982 - Jul 1 1983 -->
+      <xsl:when test="($julianDay &gt;= 2445516.5) and ($julianDay &lt; 2446247.5)">4</xsl:when>  <!-- Jul 1 1983 - Jul 1 1985 -->
+      <xsl:when test="($julianDay &gt;= 2446247.5) and ($julianDay &lt; 2447161.5)">5</xsl:when>  <!-- Jul 1 1985 - Jan 1 1988 -->
+      <xsl:when test="($julianDay &gt;= 2447161.5) and ($julianDay &lt; 2447892.5)">6</xsl:when>  <!-- Jan 1 1988 - Jan 1 1990 -->
+      <xsl:when test="($julianDay &gt;= 2447892.5) and ($julianDay &lt; 2448257.5)">7</xsl:when>  <!-- Jan 1 1990 - Jan 1 1991 -->
+      <xsl:when test="($julianDay &gt;= 2448257.5) and ($julianDay &lt; 2448804.5)">8</xsl:when>  <!-- Jan 1 1991 - Jul 1 1992 -->
+      <xsl:when test="($julianDay &gt;= 2448804.5) and ($julianDay &lt; 2449169.5)">9</xsl:when>  <!-- Jul 1 1992 - Jul 1 1993 -->
+      <xsl:when test="($julianDay &gt;= 2449169.5) and ($julianDay &lt; 2449534.5)">10</xsl:when> <!-- Jul 1 1993 - Jul 1 1994 -->
+      <xsl:when test="($julianDay &gt;= 2449534.5) and ($julianDay &lt; 2450083.5)">11</xsl:when> <!-- Jul 1 1994 - Jan 1 1996 -->
+      <xsl:when test="($julianDay &gt;= 2450083.5) and ($julianDay &lt; 2450630.5)">12</xsl:when> <!-- Jan 1 1996 - Jul 1 1997 -->
+      <xsl:when test="($julianDay &gt;= 2450630.5) and ($julianDay &lt; 2451179.5)">13</xsl:when> <!-- Jul 1 1997 - Jan 1 1999 -->
+      <xsl:when test="($julianDay &gt;= 2451179.5) and ($julianDay &lt; 2453736.5)">14</xsl:when> <!-- Jan 1 1999 - Jan 1 2006 -->
+      <xsl:when test="($julianDay &gt;= 2453736.5) and ($julianDay &lt; 2454832.5)">15</xsl:when> <!-- Jan 1 2006 - Jan 1 2009 -->
+      <xsl:otherwise>15</xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+  
+  <xsl:choose>
+    <xsl:when test="$GPSTimeToUTC = 'true'">
+      <xsl:value-of select="$offset"/>
+    </xsl:when>
+    <xsl:otherwise>
+      <xsl:value-of select="$offset * -1"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Return the Julian Day for a given TimeStamp ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="TimeStampToJulianDay">
+  <!-- The formula used in this function is valid for the years 1901 - 2099 -->
+  <xsl:param name="timeStamp"/>
+
+  <xsl:variable name="Y" select="substring($timeStamp, 1, 4)"/>
+  <xsl:variable name="M" select="substring($timeStamp, 6, 2)"/>
+  <xsl:variable name="D" select="substring($timeStamp, 9, 2)"/>
+  <xsl:variable name="h" select="substring($timeStamp, 12, 2)"/>
+  <xsl:variable name="m" select="substring($timeStamp, 15, 2)"/>
+  <xsl:variable name="s" select="substring($timeStamp, 18, 2)"/>
+
+  <xsl:value-of select="format-number(367 * $Y - floor(7 * ($Y + floor(($M + 9) div 12)) div 4) +
+                                      floor(275 * $M div 9) + $D + 1721013.5 +
+                                      ($h + $m div 60 + $s div 3600) div 24, '0.000000000')"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Return the TimeStamp for a given Julian Day ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="JulianDayToTimeStamp">
+  <!-- The formula used in this function is valid for the years 1901 - 2099 -->
+  <xsl:param name="julianDay"/>
+  <xsl:param name="secDecPlFmt" select="'00.0'"/>
+
+  <!-- Algorithm from http://www.astronomy.villanova.edu/links/jd.htm -->
+  <xsl:variable name="z" select="floor($julianDay + 0.5)"/>
+  <xsl:variable name="f" select="($julianDay + 0.5) - $z"/>
+  <xsl:variable name="y" select="floor(($z - 1867216.25) div 36524.25)"/>
+  <xsl:variable name="a" select="$z + 1 + $y - floor($y div 4)"/>
+  <xsl:variable name="b" select="$a + 1524"/>
+  <xsl:variable name="c" select="floor(($b - 122.1) div 365.25)"/>
+  <xsl:variable name="d" select="floor(365.25 * $c)"/>
+  <xsl:variable name="g" select="floor(($b - $d) div 30.6001)"/>
+  <xsl:variable name="month">
+    <xsl:choose>
+      <xsl:when test="$g &lt; 13.5">
+        <xsl:value-of select="$g - 1"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$g - 13"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+  <xsl:variable name="year">
+    <xsl:choose>
+      <xsl:when test="$month &lt; 2.5">
+        <xsl:value-of select="$c - 4715"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$c - 4716"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+  <xsl:variable name="ut" select="$b - $d - floor(30.6001 * $g) + $f"/>
+  <xsl:variable name="day" select="floor($ut)"/>
+  <xsl:variable name="utH" select="$ut - floor($ut)"/>
+  <xsl:variable name="hours" select="floor($utH * 24)"/>
+  <xsl:variable name="utM" select="$utH * 24 - $hours"/>
+  <xsl:variable name="minutes" select="floor($utM * 60)"/>
+  <xsl:variable name="utS" select="$utM * 60 - $minutes"/>
+  <xsl:variable name="seconds" select="$utS * 60"/>
+
+  <xsl:variable name="partiallyNormalisedMinutes">
+    <xsl:if test="number(format-number($seconds, $secDecPlFmt)) = 60"><xsl:value-of select="number($minutes + 1)"/></xsl:if>
+    <xsl:if test="not(number(format-number($seconds, $secDecPlFmt)) = 60)"><xsl:value-of select="$minutes"/></xsl:if>
+  </xsl:variable>
+
+  <xsl:variable name="normalisedSeconds">
+    <xsl:if test="number(format-number($seconds, $secDecPlFmt)) = 60"><xsl:value-of select="0"/></xsl:if>
+    <xsl:if test="not(number(format-number($seconds, $secDecPlFmt)) = 60)"><xsl:value-of select="$seconds"/></xsl:if>
+  </xsl:variable>
+
+  <xsl:variable name="partiallyNormalisedHours">
+    <xsl:if test="format-number($partiallyNormalisedMinutes, '0') = '60'"><xsl:value-of select="number($hours + 1)"/></xsl:if>
+    <xsl:if test="not(format-number($partiallyNormalisedMinutes, '0') = '60')"><xsl:value-of select="$hours"/></xsl:if>
+  </xsl:variable>
+
+  <xsl:variable name="normalisedHours">
+    <xsl:if test="format-number($partiallyNormalisedHours, '0') = '24'"><xsl:value-of select="0"/></xsl:if>
+    <xsl:if test="not(format-number($partiallyNormalisedHours, '0') = '24')"><xsl:value-of select="$partiallyNormalisedHours"/></xsl:if>
+  </xsl:variable>
+
+  <xsl:variable name="normalisedMinutes">
+    <xsl:if test="format-number($partiallyNormalisedMinutes, '00') = '60'"><xsl:value-of select="0"/></xsl:if>
+    <xsl:if test="not(format-number($partiallyNormalisedMinutes, '00') = '60')"><xsl:value-of select="$partiallyNormalisedMinutes"/></xsl:if>
+  </xsl:variable>
+
+  <xsl:value-of select="concat($year, '-', format-number($month, '00'), '-', format-number($day, '00'),
+                               'T', format-number($normalisedHours, '00'), ':', format-number($normalisedMinutes, '00'),
+                               ':', format-number($normalisedSeconds, $secDecPlFmt))"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******** Return nbr of seconds between given TimeStamps ******** -->
+<!-- **************************************************************** -->
+<xsl:template name="ElapsedSeconds">
+  <xsl:param name="firstTimeStamp"/>
+  <xsl:param name="secondTimeStamp"/>
+
+  <xsl:variable name="secsPerDay" select="86400"/>
+
+  <xsl:variable name="firstJulianDay">
+    <xsl:call-template name="TimeStampToJulianDay">
+      <xsl:with-param name="timeStamp" select="$firstTimeStamp"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="secondJulianDay">
+    <xsl:call-template name="TimeStampToJulianDay">
+      <xsl:with-param name="timeStamp" select="$secondTimeStamp"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="elapsedDays">
+    <xsl:choose>
+      <xsl:when test="$secondJulianDay &lt; $firstJulianDay">  <!-- Must have gone into the next year -->
+        <xsl:variable name="endOfYearJulianDay">
+          <xsl:call-template name="TimeStampToJulianDay">
+            <xsl:with-param name="timeStamp" select="concat(substring($firstJulianDay, 1, 4), '-12-31T24:00:00')"/>
+          </xsl:call-template>
+        </xsl:variable>
+        <xsl:value-of select="$secondJulianDay + $endOfYearJulianDay - $firstJulianDay"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$secondJulianDay - $firstJulianDay"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:value-of select="round($elapsedDays * $secsPerDay)"/>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************ Return duration time in hours:min:sec ************* -->
+<!-- **************************************************************** -->
+<xsl:template name="DurationTime">
+  <xsl:param name="seconds"/>
+  <xsl:param name="includeHours" select="'true'"/>
+
+  <xsl:variable name="minutes" select="floor($seconds div 60)"/>
+  <xsl:variable name="tempSecs" select="$seconds - $minutes * 60"/>
+  <xsl:variable name="hoursMins">
+    <xsl:choose>
+      <xsl:when test="$minutes &gt;= 60">
+        <xsl:variable name="tempHours">
+          <xsl:value-of select="format-number(floor($minutes div 60), '00')"/>
+        </xsl:variable>
+        <xsl:variable name="tempMins">
+          <xsl:value-of select="$minutes - $tempHours * 60"/>
+        </xsl:variable>
+        <xsl:value-of select="concat($tempHours, ':', format-number($tempMins, '00'))"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:choose>
+          <xsl:when test="$includeHours = 'true'">
+            <xsl:value-of select="concat('00:', format-number($minutes, '00'))"/>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:value-of select="$minutes"/>
+          </xsl:otherwise>
+        </xsl:choose>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:value-of select="concat($hoursMins, ':', format-number($tempSecs, '00'))"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Format date according to specified format *********** -->
+<!-- **************************************************************** -->
+<xsl:template name="FormatDate">
+  <xsl:param name="timeStamp"/>
+  <xsl:param name="formatStr"/>
+
+  <!-- The supported format characters are as described below:
+       Character(s)              Description
+       M                         Months as 1-12
+       MM                        Months as 01-12
+       MMM                       Months as Jan-Dec
+       MMMM                      Months as January-December
+       d                         Days as 1-31
+       dd                        Days as 01-31
+       ddd                       Days as Sun-Sat
+       dddd                      Days as Sunday-Saturday
+       y                         Years as 1,2 …,99
+       yy                        Years as 00-99
+       yyyy                      Years as 1900-9999       -->
+
+  <xsl:variable name="dateFormat">
+    <xsl:call-template name="GetMonthPatterns">
+      <xsl:with-param name="formatStr" select="$formatStr"/>
+      <xsl:with-param name="timeStamp" select="$timeStamp"/>
+    </xsl:call-template>
+
+    <xsl:call-template name="GetDayPatterns">
+      <xsl:with-param name="formatStr" select="$formatStr"/>
+      <xsl:with-param name="timeStamp" select="$timeStamp"/>
+    </xsl:call-template>
+
+    <xsl:call-template name="GetYearPatterns">
+      <xsl:with-param name="formatStr" select="$formatStr"/>
+      <xsl:with-param name="timeStamp" select="$timeStamp"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="sortedDateFormat">
+    <xsl:for-each select="msxsl:node-set($dateFormat)/item">
+      <xsl:sort select="startPos" data-type="number" order="ascending"/>
+      <xsl:copy-of select="."/>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:for-each select="msxsl:node-set($sortedDateFormat)/item">
+    <xsl:value-of select="string"/>
+    <xsl:if test="position() != last()">  <!-- Output the separating character(s) -->
+      <xsl:variable name="sepStrStart" select="startPos + length"/>
+      <xsl:variable name="sepStrEnd" select="following-sibling::item/startPos - 1"/>
+      <xsl:value-of select="substring($formatStr, $sepStrStart, $sepStrEnd - $sepStrStart + 1)"/>
+    </xsl:if>
+  </xsl:for-each>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Get all month patterns from specified format ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="GetMonthPatterns">
+  <xsl:param name="formatStr"/>
+  <xsl:param name="timeStamp"/>
+  <xsl:param name="startPos" select="1"/>
+
+  <xsl:variable name="start">
+    <xsl:call-template name="FindFirstChar">
+      <xsl:with-param name="inStr" select="$formatStr"/>
+      <xsl:with-param name="matchChar" select="'M'"/>
+      <xsl:with-param name="startPos" select="$startPos"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="end">
+    <xsl:call-template name="FindLastChar">
+      <xsl:with-param name="inStr" select="$formatStr"/>
+      <xsl:with-param name="matchChar" select="'M'"/>
+      <xsl:with-param name="startPos" select="$start"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:if test="($start != 0) and ($end != 0)">
+    <xsl:element name="item" namespace="">
+      <xsl:element name="startPos" namespace="">
+        <xsl:value-of select="$start"/>
+      </xsl:element>
+
+      <xsl:element name="length" namespace="">
+        <xsl:value-of select="$end - $start + 1"/>
+      </xsl:element>
+
+      <xsl:element name="string" namespace="">
+        <xsl:call-template name="MonthString">
+          <xsl:with-param name="timeStamp" select="$timeStamp"/>
+          <xsl:with-param name="identifierLength" select="$end - $start + 1"/>
+        </xsl:call-template>
+      </xsl:element>
+    </xsl:element>
+
+    <xsl:call-template name="GetMonthPatterns">   <!-- Recurse function in case of another month definition -->
+      <xsl:with-param name="formatStr" select="$formatStr"/>
+      <xsl:with-param name="timeStamp" select="$timeStamp"/>
+      <xsl:with-param name="startPos" select="$end + 1"/>
+    </xsl:call-template>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Get all day patterns from specified format ********** -->
+<!-- **************************************************************** -->
+<xsl:template name="GetDayPatterns">
+  <xsl:param name="formatStr"/>
+  <xsl:param name="timeStamp"/>
+  <xsl:param name="startPos" select="1"/>
+
+  <xsl:variable name="start">
+    <xsl:call-template name="FindFirstChar">
+      <xsl:with-param name="inStr" select="$formatStr"/>
+      <xsl:with-param name="matchChar" select="'d'"/>
+      <xsl:with-param name="startPos" select="$startPos"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="end">
+    <xsl:call-template name="FindLastChar">
+      <xsl:with-param name="inStr" select="$formatStr"/>
+      <xsl:with-param name="matchChar" select="'d'"/>
+      <xsl:with-param name="startPos" select="$start"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:if test="($start != 0) and ($end != 0)">
+    <xsl:element name="item" namespace="">
+      <xsl:element name="startPos" namespace="">
+        <xsl:value-of select="$start"/>
+      </xsl:element>
+
+      <xsl:element name="length" namespace="">
+        <xsl:value-of select="$end - $start + 1"/>
+      </xsl:element>
+
+      <xsl:element name="string" namespace="">
+        <xsl:call-template name="DayString">
+          <xsl:with-param name="timeStamp" select="$timeStamp"/>
+          <xsl:with-param name="identifierLength" select="$end - $start + 1"/>
+        </xsl:call-template>
+      </xsl:element>
+    </xsl:element>
+
+    <xsl:call-template name="GetDayPatterns">   <!-- Recurse function in case of another day definition -->
+      <xsl:with-param name="formatStr" select="$formatStr"/>
+      <xsl:with-param name="timeStamp" select="$timeStamp"/>
+      <xsl:with-param name="startPos" select="$end + 1"/>
+    </xsl:call-template>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Get all year patterns from specified format ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="GetYearPatterns">
+  <xsl:param name="formatStr"/>
+  <xsl:param name="timeStamp"/>
+  <xsl:param name="startPos" select="1"/>
+
+  <xsl:variable name="start">
+    <xsl:call-template name="FindFirstChar">
+      <xsl:with-param name="inStr" select="$formatStr"/>
+      <xsl:with-param name="matchChar" select="'y'"/>
+      <xsl:with-param name="startPos" select="$startPos"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="end">
+    <xsl:call-template name="FindLastChar">
+      <xsl:with-param name="inStr" select="$formatStr"/>
+      <xsl:with-param name="matchChar" select="'y'"/>
+      <xsl:with-param name="startPos" select="$start"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:if test="($start != 0) and ($end != 0)">
+    <xsl:element name="item" namespace="">
+      <xsl:element name="startPos" namespace="">
+        <xsl:value-of select="$start"/>
+      </xsl:element>
+
+      <xsl:element name="length" namespace="">
+        <xsl:value-of select="$end - $start + 1"/>
+      </xsl:element>
+
+      <xsl:element name="string" namespace="">
+        <xsl:call-template name="YearString">
+          <xsl:with-param name="timeStamp" select="$timeStamp"/>
+          <xsl:with-param name="identifierLength" select="$end - $start + 1"/>
+        </xsl:call-template>
+      </xsl:element>
+    </xsl:element>
+
+    <xsl:call-template name="GetYearPatterns">   <!-- Recurse function in case of another year definition -->
+      <xsl:with-param name="formatStr" select="$formatStr"/>
+      <xsl:with-param name="timeStamp" select="$timeStamp"/>
+      <xsl:with-param name="startPos" select="$end + 1"/>
+    </xsl:call-template>
+  </xsl:if>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *********** Find first occurrence of char in string ************ -->
+<!-- **************************************************************** -->
+<xsl:template name="FindFirstChar">
+  <xsl:param name="inStr"/>
+  <xsl:param name="matchChar"/>
+  <xsl:param name="startPos" select="1"/>
+
+  <xsl:choose>
+    <xsl:when test="$startPos &gt; string-length($inStr)">0</xsl:when>
+    <xsl:when test="substring($inStr, $startPos, 1) = $matchChar">
+      <xsl:value-of select="$startPos"/>
+    </xsl:when>
+    <xsl:otherwise>   <!-- Recurse function incrementing startPos -->
+      <xsl:call-template name="FindFirstChar">
+        <xsl:with-param name="inStr" select="$inStr"/>
+        <xsl:with-param name="matchChar" select="$matchChar"/>
+        <xsl:with-param name="startPos" select="$startPos + 1"/>
+      </xsl:call-template>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************ Find last occurrence of char in string ************ -->
+<!-- **************************************************************** -->
+<xsl:template name="FindLastChar">
+  <xsl:param name="inStr"/>
+  <xsl:param name="matchChar"/>
+  <xsl:param name="startPos" select="1"/>
+
+  <xsl:choose>
+    <xsl:when test="$startPos &gt; string-length($inStr)">0</xsl:when>
+    <xsl:when test="substring($inStr, $startPos, 1) = $matchChar">
+      <xsl:choose>
+        <xsl:when test="$startPos = string-length($inStr)">  <!-- At end of string and character matches -->
+          <xsl:value-of select="$startPos"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:call-template name="FindLastChar">   <!-- Recurse function incrementing startPos -->
+            <xsl:with-param name="inStr" select="$inStr"/>
+            <xsl:with-param name="matchChar" select="$matchChar"/>
+            <xsl:with-param name="startPos" select="$startPos + 1"/>
+          </xsl:call-template>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+    <xsl:otherwise>   <!-- Current char doesn't match $matchChar so return prior position -->
+      <xsl:value-of select="$startPos - 1"/>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********** Format date according to specified format *********** -->
+<!-- **************************************************************** -->
+<xsl:template name="MonthString">
+  <xsl:param name="timeStamp"/>    <!-- In time stamp format -->
+  <xsl:param name="identifierLength"/>
+
+  <xsl:choose>
+    <xsl:when test="$identifierLength = 1">
+      <xsl:variable name="month" select="substring($timeStamp, 6, 2)"/>
+      <xsl:choose>
+        <xsl:when test="number($month) &lt; 10">
+          <xsl:value-of select="substring($month, 2, 1)"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$month"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+
+    <xsl:when test="$identifierLength = 2">
+      <xsl:value-of select="substring($timeStamp, 6, 2)"/>
+    </xsl:when>
+
+    <xsl:when test="$identifierLength = 3">
+      <xsl:variable name="month" select="substring($timeStamp, 6, 2)"/>
+      <xsl:choose>
+        <xsl:when test="number($month) = 1">Jan</xsl:when>
+        <xsl:when test="number($month) = 2">Feb</xsl:when>
+        <xsl:when test="number($month) = 3">Mar</xsl:when>
+        <xsl:when test="number($month) = 4">Apr</xsl:when>
+        <xsl:when test="number($month) = 5">May</xsl:when>
+        <xsl:when test="number($month) = 6">Jun</xsl:when>
+        <xsl:when test="number($month) = 7">Jul</xsl:when>
+        <xsl:when test="number($month) = 8">Aug</xsl:when>
+        <xsl:when test="number($month) = 9">Sep</xsl:when>
+        <xsl:when test="number($month) = 10">Oct</xsl:when>
+        <xsl:when test="number($month) = 11">Nov</xsl:when>
+        <xsl:when test="number($month) = 12">Dec</xsl:when>
+      </xsl:choose>
+    </xsl:when>
+
+    <xsl:when test="$identifierLength = 4">
+      <xsl:variable name="month" select="substring($timeStamp, 6, 2)"/>
+      <xsl:choose>
+        <xsl:when test="number($month) = 1">January</xsl:when>
+        <xsl:when test="number($month) = 2">February</xsl:when>
+        <xsl:when test="number($month) = 3">March</xsl:when>
+        <xsl:when test="number($month) = 4">April</xsl:when>
+        <xsl:when test="number($month) = 5">May</xsl:when>
+        <xsl:when test="number($month) = 6">June</xsl:when>
+        <xsl:when test="number($month) = 7">July</xsl:when>
+        <xsl:when test="number($month) = 8">August</xsl:when>
+        <xsl:when test="number($month) = 9">September</xsl:when>
+        <xsl:when test="number($month) = 10">October</xsl:when>
+        <xsl:when test="number($month) = 11">November</xsl:when>
+        <xsl:when test="number($month) = 12">December</xsl:when>
+      </xsl:choose>
+    </xsl:when>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Return the day according to specified format ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="DayString">
+  <xsl:param name="timeStamp"/>     <!-- In time stamp format -->
+  <xsl:param name="identifierLength"/>
+
+  <xsl:choose>
+    <xsl:when test="$identifierLength = 1">
+      <xsl:variable name="day" select="substring($timeStamp, 9, 2)"/>
+      <xsl:choose>
+        <xsl:when test="number($day) &lt; 10">
+          <xsl:value-of select="substring($day, 2, 1)"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$day"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+
+    <xsl:when test="$identifierLength = 2">
+      <xsl:value-of select="substring($timeStamp, 9, 2)"/>
+    </xsl:when>
+
+    <xsl:when test="$identifierLength &gt; 2">
+      <xsl:variable name="year" select="number(substring($timeStamp, 1, 4))"/>
+      <xsl:variable name="month" select="number(substring($timeStamp, 6, 2))"/>
+      <xsl:variable name="day" select="number(substring($timeStamp, 9, 2))"/>
+
+      <!-- Get julian day -->
+      <xsl:variable name="julianDay">
+        <xsl:call-template name="DateToJulianDay">
+          <xsl:with-param name="year" select="$year"/>
+          <xsl:with-param name="month" select="$month"/>
+          <xsl:with-param name="day" select="$day"/>
+        </xsl:call-template>
+      </xsl:variable>
+
+      <xsl:variable name="dayOfWeek0" select="$julianDay mod 10227"/>
+      <xsl:variable name="dayOfWeek" select="($dayOfWeek0 mod 7) + 1"/>
+
+      <!-- Return as named day -->
+      <xsl:choose>
+        <xsl:when test="$dayOfWeek = 1">
+          <xsl:choose>
+            <xsl:when test="$identifierLength = 3">Mon</xsl:when>
+            <xsl:otherwise>Monday</xsl:otherwise>
+          </xsl:choose>
+        </xsl:when>
+        <xsl:when test="$dayOfWeek = 2">
+          <xsl:choose>
+            <xsl:when test="$identifierLength = 3">Tue</xsl:when>
+            <xsl:otherwise>Tuesday</xsl:otherwise>
+          </xsl:choose>
+        </xsl:when>
+        <xsl:when test="$dayOfWeek = 3">
+          <xsl:choose>
+            <xsl:when test="$identifierLength = 3">Wed</xsl:when>
+            <xsl:otherwise>Wednesday</xsl:otherwise>
+          </xsl:choose>
+        </xsl:when>
+        <xsl:when test="$dayOfWeek = 4">
+          <xsl:choose>
+            <xsl:when test="$identifierLength = 3">Thu</xsl:when>
+            <xsl:otherwise>Thursday</xsl:otherwise>
+          </xsl:choose>
+        </xsl:when>
+        <xsl:when test="$dayOfWeek = 5">
+          <xsl:choose>
+            <xsl:when test="$identifierLength = 3">Fri</xsl:when>
+            <xsl:otherwise>Friday</xsl:otherwise>
+          </xsl:choose>
+        </xsl:when>
+        <xsl:when test="$dayOfWeek = 6">
+          <xsl:choose>
+            <xsl:when test="$identifierLength = 3">Sat</xsl:when>
+            <xsl:otherwise>Saturday</xsl:otherwise>
+          </xsl:choose>
+        </xsl:when>
+        <xsl:when test="$dayOfWeek = 7">
+          <xsl:choose>
+            <xsl:when test="$identifierLength = 3">Sun</xsl:when>
+            <xsl:otherwise>Sunday</xsl:otherwise>
+          </xsl:choose>
+        </xsl:when>
+      </xsl:choose>
+    </xsl:when>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******** Return the year according to specified format ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="YearString">
+  <xsl:param name="timeStamp"/>     <!-- In time stamp format -->
+  <xsl:param name="identifierLength"/>
+
+  <xsl:choose>
+    <xsl:when test="$identifierLength = 1">
+      <xsl:variable name="year" select="substring($timeStamp, 3, 2)"/>
+      <xsl:choose>
+        <xsl:when test="number($year) &lt; 10">
+          <xsl:value-of select="substring($year, 2, 1)"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="$year"/>
+        </xsl:otherwise>
+      </xsl:choose>
+    </xsl:when>
+
+    <xsl:when test="$identifierLength = 2">
+      <xsl:value-of select="substring($timeStamp, 3, 2)"/>
+    </xsl:when>
+
+    <xsl:when test="$identifierLength &gt; 2">
+      <xsl:value-of select="substring($timeStamp, 1, 4)"/>
+    </xsl:when>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ************ Return the Julian day the given date ************** -->
+<!-- **************************************************************** -->
+<xsl:template name="DateToJulianDay">
+  <xsl:param name="year"/>
+  <xsl:param name="month"/>
+  <xsl:param name="day"/>
+
+  <xsl:variable name="j0" select="ceiling(($month - 14) div 12)"/>
+  <xsl:variable name="j1" select="floor((1461 * ($year + 4800 + $j0)) div 4)"/>
+  <xsl:variable name="j2" select="floor((367 * ($month - 2 - (12 * $j0))) div 12)"/>
+  <xsl:variable name="j3" select="floor((3 * floor(($year + 4900 + $j0) div 100)) div 4)"/>
+
+  <!-- final calc -->
+  <xsl:value-of select="$j1 + $j2 - $j3 + $day - 32075"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******* Return the UTC TimeStamp for a given TimeStamp ********* -->
+<!-- **************************************************************** -->
+<xsl:template name="TimeStampToUTCTimeStamp">
+  <xsl:param name="timeStamp"/>
+  <xsl:param name="suppliedUTCOffset"/>
+
+  <xsl:variable name="UTCOffset">
+    <xsl:choose>
+      <xsl:when test="string(number($suppliedUTCOffset)) != 'NaN'">
+        <xsl:value-of select="$suppliedUTCOffset"/>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="/JOBFile/Environment/TimeZone/HoursToUTC"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="julianDay">
+    <xsl:call-template name="TimeStampToJulianDay">
+      <xsl:with-param name="timeStamp" select="$timeStamp"/>
+    </xsl:call-template>
+  </xsl:variable>
+
+  <xsl:variable name="julianDayUTC" select="$julianDay + $UTCOffset * 0.041666666666"/>
+
+  <xsl:call-template name="JulianDayToTimeStamp">
+    <xsl:with-param name="julianDay" select="$julianDayUTC"/>
+  </xsl:call-template>
+</xsl:template>
+
+
+</xsl:stylesheet>

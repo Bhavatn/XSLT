@@ -1,0 +1,841 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:msxsl="urn:schemas-microsoft-com:xslt">
+
+<!-- Functions available in this style sheet: -->
+<!--   PositionAtStation - returns the horizontal position at a given station using the passed in horizontal alignment -->
+<!--   InstantaneousRadius - returns the instantaneous radius at a given station using the passed in horizontal alignment -->
+<!--   InstantaneousAzimuth - returns the instantaneous azimuth at a given station using the passed in horizontal alignment -->
+<!--   GetSuperWidening - returns the superelevation and widening values on both the left and right interpolated for the specified station -->
+<!--   InterpolatedDeltaElevByGrade - return a delta elevation value interpolated by grade -->
+<!--   InterpolatedValueByStation - returns a value interpolated by the station value based on start and end station values -->
+
+<!-- **************************************************************** -->
+<!-- *********** Return the position at the given station *********** -->
+<!-- **************************************************************** -->
+<xsl:template name="PositionAtStation">
+  <xsl:param name="horizAlignment"/>
+  <xsl:param name="station"/>
+
+  <!-- This function returns a node set with north and east elements -->
+  <!-- It uses the global $roadScaleFactor variable.                 -->
+  <xsl:choose>
+    <xsl:when test="$station &lt; msxsl:node-set($horizAlignment)/StartStation">Out of range</xsl:when>
+    <xsl:when test="$station &gt; msxsl:node-set($horizAlignment)/EndStation">Out of range</xsl:when>
+    <xsl:otherwise>
+      <xsl:for-each select="msxsl:node-set($horizAlignment)/*[(name(.) != 'StartStation') and (name(.) != 'EndStation') and (name(.) != 'StartPoint')]">
+        <xsl:if test="(($station &gt;= StartStation) and ($station &lt; EndStation) and (position() != last())) or
+                      (($station &gt;= StartStation) and ($station &lt;= EndStation) and (position() = last()))">
+          <xsl:choose>
+            <xsl:when test="name(.) = 'Straight'">
+              <xsl:call-template name="InterpolatedCoordinates">
+                <xsl:with-param name="startN" select="StartCoordinate/North"/>
+                <xsl:with-param name="startE" select="StartCoordinate/East"/>
+                <xsl:with-param name="endN" select="EndCoordinate/North"/>
+                <xsl:with-param name="endE" select="EndCoordinate/East"/>
+                <xsl:with-param name="distAlong" select="($station - StartStation) * $roadScaleFactor"/>
+              </xsl:call-template>
+            </xsl:when>
+
+            <xsl:when test="name(.) = 'Arc'">
+              <xsl:variable name="distAlong" select="($station - StartStation) * $roadScaleFactor"/>
+              <xsl:variable name="deflectionAngle" select="($distAlong div (Radius * $roadScaleFactor)) div 2.0"/>
+              <xsl:variable name="sinDeflectionAngle">
+                <xsl:call-template name="Sine">
+                  <xsl:with-param name="theAngle" select="$deflectionAngle"/>
+                </xsl:call-template>
+              </xsl:variable>
+              <xsl:variable name="chordLen" select="2.0 * Radius * $roadScaleFactor * $sinDeflectionAngle"/>
+              <xsl:variable name="azimuth">
+                <xsl:choose>
+                  <xsl:when test="Direction = 'Right'">
+                    <xsl:value-of select="StartAzimuth + $deflectionAngle * 180.0 div $Pi"/>
+                  </xsl:when>
+                  <xsl:otherwise>
+                    <xsl:value-of select="StartAzimuth - $deflectionAngle * 180.0 div $Pi"/>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+              <xsl:call-template name="FollowAzimuth">
+                <xsl:with-param name="azimuth" select="$azimuth"/>
+                <xsl:with-param name="distance" select="$chordLen"/>
+                <xsl:with-param name="startN" select="StartCoordinate/North"/>
+                <xsl:with-param name="startE" select="StartCoordinate/East"/>
+              </xsl:call-template>
+            </xsl:when>
+
+            <xsl:when test="name(.) = 'EntrySpiral'">
+              <xsl:variable name="offsets">
+                <xsl:call-template name="CalcSpiral">
+                  <xsl:with-param name="smallRadius" select="EndRadius * $roadScaleFactor"/>
+                  <xsl:with-param name="largeRadius" select="StartRadius * $roadScaleFactor"/>
+                  <xsl:with-param name="length" select="Length * $roadScaleFactor"/>
+                  <xsl:with-param name="spiralDist" select="($station - StartStation) * $roadScaleFactor"/>
+                  <xsl:with-param name="spiralType" select="$spiralType"/>
+                </xsl:call-template>
+              </xsl:variable>
+              
+              <xsl:variable name="tempPos">
+                <xsl:call-template name="FollowAzimuth">
+                  <xsl:with-param name="azimuth" select="StartAzimuth"/>
+                  <xsl:with-param name="distance" select="msxsl:node-set($offsets)/along"/>
+                  <xsl:with-param name="startN" select="StartCoordinate/North"/>
+                  <xsl:with-param name="startE" select="StartCoordinate/East"/>
+                </xsl:call-template>
+              </xsl:variable>
+
+              <xsl:variable name="across">
+                <xsl:choose>
+                  <xsl:when test="Direction = 'Right'">
+                    <xsl:value-of select="msxsl:node-set($offsets)/across"/>
+                  </xsl:when>
+                  <xsl:otherwise>
+                    <xsl:value-of select="msxsl:node-set($offsets)/across * -1.0"/>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+              
+              <xsl:call-template name="FollowAzimuth">
+                <xsl:with-param name="azimuth" select="StartAzimuth + 90.0"/>
+                <xsl:with-param name="distance" select="$across"/>
+                <xsl:with-param name="startN" select="msxsl:node-set($tempPos)/north"/>
+                <xsl:with-param name="startE" select="msxsl:node-set($tempPos)/east"/>
+              </xsl:call-template>
+            </xsl:when>
+
+            <xsl:when test="name(.) = 'ExitSpiral'">
+              <xsl:variable name="offsets">
+                <xsl:call-template name="CalcSpiral">
+                  <xsl:with-param name="smallRadius" select="StartRadius * $roadScaleFactor"/>
+                  <xsl:with-param name="largeRadius" select="EndRadius * $roadScaleFactor"/>
+                  <xsl:with-param name="length" select="Length * $roadScaleFactor"/>
+                  <xsl:with-param name="spiralDist" select="(Length - ($station - StartStation)) * $roadScaleFactor"/>
+                  <xsl:with-param name="spiralType" select="$spiralType"/>
+                </xsl:call-template>
+              </xsl:variable>
+
+              <xsl:variable name="tempPos">
+                <xsl:call-template name="FollowAzimuth">
+                  <xsl:with-param name="azimuth" select="EndAzimuth + 180.0"/>
+                  <xsl:with-param name="distance" select="msxsl:node-set($offsets)/along"/>
+                  <xsl:with-param name="startN" select="EndCoordinate/North"/>
+                  <xsl:with-param name="startE" select="EndCoordinate/East"/>
+                </xsl:call-template>
+              </xsl:variable>
+
+              <xsl:variable name="across">
+                <xsl:choose>
+                  <xsl:when test="Direction = 'Right'">
+                    <xsl:value-of select="msxsl:node-set($offsets)/across * -1.0"/>
+                  </xsl:when>
+                  <xsl:otherwise>
+                    <xsl:value-of select="msxsl:node-set($offsets)/across"/>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+
+              <xsl:call-template name="FollowAzimuth">
+                <xsl:with-param name="azimuth" select="EndAzimuth - 90.0"/>
+                <xsl:with-param name="distance" select="$across"/>
+                <xsl:with-param name="startN" select="msxsl:node-set($tempPos)/north"/>
+                <xsl:with-param name="startE" select="msxsl:node-set($tempPos)/east"/>
+              </xsl:call-template>
+            </xsl:when>
+          </xsl:choose>
+        </xsl:if>
+      </xsl:for-each>
+    </xsl:otherwise>
+  </xsl:choose>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ******* Return the instantaneous radius given the station ****** -->
+<!-- **************************************************************** -->
+<xsl:template name="InstantaneousRadius">
+  <xsl:param name="horizAlignment"/>
+  <xsl:param name="station"/>
+
+  <xsl:choose>
+    <xsl:when test="$station &lt; msxsl:node-set($horizAlignment)/StartStation">Out of range</xsl:when>
+    <xsl:when test="$station &gt; msxsl:node-set($horizAlignment)/EndStation">Out of range</xsl:when>
+    <xsl:otherwise>
+      <xsl:for-each select="msxsl:node-set($horizAlignment)/*[(name(.) != 'StartStation') and (name(.) != 'EndStation') and (name(.) != 'StartPoint')]">
+        <xsl:variable name="isStartStn">
+          <xsl:choose>
+            <xsl:when test="concat(substring('-',2 - (($station - StartStation) &lt; 0)), '1') * ($station - StartStation) &lt; 0.001">true</xsl:when>
+            <xsl:otherwise>false</xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+        <xsl:variable name="isEndStn">
+          <xsl:choose>
+            <xsl:when test="concat(substring('-',2 - (($station - EndStation) &lt; 0)), '1') * ($station - EndStation) &lt; 0.001">true</xsl:when>
+            <xsl:otherwise>false</xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+        <xsl:if test="($isStartStn = 'true') or (($isEndStn = 'true') and (position() = last())) or
+                      (($station &gt; StartStation) and ($station &lt; EndStation) and (position() != last())) or
+                      (($station &gt; StartStation) and ($station &lt; EndStation))">
+          <xsl:choose>
+            <xsl:when test="name(.) = 'Straight'">Straight</xsl:when>
+
+            <xsl:when test="name(.) = 'Arc'">
+              <xsl:variable name="radius">
+                <xsl:choose>
+                  <xsl:when test="Direction = 'Left'">
+                    <xsl:value-of select="Radius * -1.0"/>  <!-- Change sign of radius value -->
+                  </xsl:when>
+                  <xsl:otherwise>
+                    <xsl:value-of select="Radius"/>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+              <xsl:value-of select="format-number($radius * $DistConvFactor, $DecPl3, 'Standard')"/>
+            </xsl:when>
+
+            <xsl:when test="name(.) = 'EntrySpiral'">
+              <xsl:variable name="distAlong" select="$station - StartStation"/>
+              <xsl:variable name="radius">
+                <xsl:choose>
+                  <xsl:when test="$distAlong &lt; 0.00005"> <!-- At the start station of entry spiral - return StartRadius -->
+                    <xsl:choose>
+                      <xsl:when test="string(number(StartRadius)) = 'NaN'">Straight</xsl:when>
+                      <xsl:otherwise>
+                        <xsl:value-of select="StartRadius"/>
+                      </xsl:otherwise>
+                    </xsl:choose>
+                  </xsl:when>
+                  <xsl:when test="concat(substring('-',2 - ((Length - $distAlong) &lt; 0)), '1') * (Length - $distAlong) &lt; 0.00005">
+                    <!-- At the end point of the entry spiral - return the EndRadius -->
+                    <xsl:value-of select="EndRadius"/>
+                  </xsl:when>
+                  <xsl:otherwise>  <!-- At some point along the spiral -->
+                    <xsl:choose>
+                      <xsl:when test="$spiralType = 'NSWCubicParabola'">
+                        <xsl:variable name="transitionXc">
+                          <xsl:call-template name="CalcNSWTransitionXc">
+                            <xsl:with-param name="length" select="Length"/>
+                            <xsl:with-param name="smallRadius" select="EndRadius"/>
+                            <xsl:with-param name="largeRadius" select="StartRadius"/>
+                          </xsl:call-template>
+                        </xsl:variable>
+
+                        <xsl:variable name="radiusVals">
+                          <xsl:call-template name="CalcNSWRadiusAtDistance">
+                            <xsl:with-param name="smallRadius" select="EndRadius"/>
+                            <xsl:with-param name="largeRadius" select="StartRadius"/>
+                            <xsl:with-param name="length" select="Length"/>
+                            <xsl:with-param name="spiralDist" select="$distAlong"/>
+                            <xsl:with-param name="transitionXc" select="$transitionXc"/>
+                          </xsl:call-template>
+                        </xsl:variable>
+                        <xsl:value-of select="msxsl:node-set($radiusVals)/radius"/>
+                      </xsl:when>
+                      
+                      <xsl:when test="$spiralType = 'Bloss'">
+                        <xsl:value-of select="EndRadius * Length * Length * Length div
+                                              (3.0 * Length * $distAlong * $distAlong -
+                                               2.0 * $distAlong * $distAlong * $distAlong)"/>
+                      </xsl:when>
+                      
+                      <xsl:otherwise> <!-- Clothoid, Cubic, CubicParabola or KoreanCubicParabola - same computation works for all -->
+                        <xsl:choose>
+                          <xsl:when test="string(number(StartRadius)) = 'NaN'">  <!-- Spiraling from infinity -->
+                            <!-- For a spiral RL = K (constant) for any point on the spiral so R = K / L -->
+                            <xsl:value-of select="(Length * EndRadius) div $distAlong"/>
+                          </xsl:when>
+                          <xsl:otherwise>  <!-- Spiraling from part way along the spiral -->
+                            <!-- First compute the length of the spiral required to spiral from infinity to the start radius -->
+                            <xsl:variable name="leadInLen" select="(EndRadius * Length) div (StartRadius - EndRadius)"/>
+                            <xsl:value-of select="(($leadInLen + Length) * EndRadius) div ($leadInLen + $distAlong)"/>
+                          </xsl:otherwise>
+                        </xsl:choose>
+                      </xsl:otherwise>
+                    </xsl:choose>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+
+              <xsl:choose>
+                <xsl:when test="$radius = 'Straight'">
+                  <xsl:value-of select="$radius"/>
+                </xsl:when>
+                <xsl:when test="Direction = 'Left'">  <!-- Change sign of radius value -->
+                  <xsl:value-of select="format-number($radius * -1.0 * $DistConvFactor, $DecPl3, 'Standard')"/>
+                </xsl:when>
+                <xsl:otherwise>
+                  <xsl:value-of select="format-number($radius * $DistConvFactor, $DecPl3, 'Standard')"/>
+                </xsl:otherwise>
+              </xsl:choose>
+            </xsl:when>
+
+            <xsl:when test="name(.) = 'ExitSpiral'">
+              <xsl:variable name="distAlong" select="Length - ($station - StartStation)"/>
+              <xsl:variable name="radius">
+                <xsl:choose>
+                  <xsl:when test="$distAlong &lt; 0.00005"> <!-- At the end station of entry spiral - return EndRadius -->
+                    <xsl:choose>
+                      <xsl:when test="string(number(EndRadius)) = 'NaN'">Straight</xsl:when>
+                      <xsl:otherwise>
+                        <xsl:value-of select="EndRadius"/>
+                      </xsl:otherwise>
+                    </xsl:choose>
+                  </xsl:when>
+                  <xsl:when test="concat(substring('-',2 - ((Length - $distAlong) &lt; 0)), '1') * (Length - $distAlong) &lt; 0.00005">
+                    <!-- At the start point of the exit spiral - return the StartRadius -->
+                    <xsl:value-of select="StartRadius"/>
+                  </xsl:when>
+                  <xsl:otherwise>  <!-- At some point along the spiral -->
+                    <xsl:choose>
+                      <xsl:when test="$spiralType = 'NSWCubicParabola'">
+                        <xsl:variable name="transitionXc">
+                          <xsl:call-template name="CalcNSWTransitionXc">
+                            <xsl:with-param name="length" select="Length"/>
+                            <xsl:with-param name="smallRadius" select="StartRadius"/>
+                            <xsl:with-param name="largeRadius" select="EndRadius"/>
+                          </xsl:call-template>
+                        </xsl:variable>
+
+                        <xsl:variable name="radiusVals">
+                          <xsl:call-template name="CalcNSWRadiusAtDistance">
+                            <xsl:with-param name="smallRadius" select="StartRadius"/>
+                            <xsl:with-param name="largeRadius" select="EndRadius"/>
+                            <xsl:with-param name="length" select="Length"/>
+                            <xsl:with-param name="spiralDist" select="$distAlong"/>
+                            <xsl:with-param name="transitionXc" select="$transitionXc"/>
+                          </xsl:call-template>
+                        </xsl:variable>
+                        <xsl:value-of select="msxsl:node-set($radiusVals)/radius"/>
+                      </xsl:when>
+
+                      <xsl:when test="$spiralType = 'Bloss'">
+                        <xsl:value-of select="StartRadius * Length * Length * Length div
+                                              (3.0 * Length * $distAlong * $distAlong -
+                                               2.0 * $distAlong * $distAlong * $distAlong)"/>
+                      </xsl:when>
+
+                      <xsl:otherwise> <!-- Clothoid, Cubic, CubicParabola or KoreanCubicParabola - same computation works for all -->
+                        <xsl:choose>
+                          <xsl:when test="string(number(EndRadius)) = 'NaN'">  <!-- Spiraling to infinity -->
+                            <!-- For a spiral RL = K (constant) for any point on the spiral so R = K / L -->
+                            <xsl:value-of select="(Length * StartRadius) div $distAlong"/>
+                          </xsl:when>
+                          <xsl:otherwise>  <!-- Spiraling to part way along the spiral -->
+                            <!-- First compute the length of the spiral required to spiral from the end radius to infinity -->
+                            <xsl:variable name="leadOutLen" select="(StartRadius * Length) div (EndRadius - StartRadius)"/>
+                            <xsl:value-of select="(($leadOutLen + Length) * StartRadius) div ($leadOutLen + $distAlong)"/>
+                          </xsl:otherwise>
+                        </xsl:choose>
+                      </xsl:otherwise>
+                    </xsl:choose>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+
+              <xsl:choose>
+                <xsl:when test="$radius = 'Straight'">
+                  <xsl:value-of select="$radius"/>
+                </xsl:when>
+                <xsl:when test="Direction = 'Left'">  <!-- Change sign of radius value -->
+                  <xsl:value-of select="format-number($radius * -1.0 * $DistConvFactor, $DecPl3, 'Standard')"/>
+                </xsl:when>
+                <xsl:otherwise>
+                  <xsl:value-of select="format-number($radius * $DistConvFactor, $DecPl3, 'Standard')"/>
+                </xsl:otherwise>
+              </xsl:choose>
+            </xsl:when>
+          </xsl:choose>
+        </xsl:if>
+      </xsl:for-each>
+    </xsl:otherwise>
+  </xsl:choose>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ****** Return the instantaneous azimuth given the station ****** -->
+<!-- **************************************************************** -->
+<xsl:template name="InstantaneousAzimuth">
+  <xsl:param name="horizAlignment"/>
+  <xsl:param name="station"/>
+
+  <xsl:choose>
+    <xsl:when test="$station &lt; msxsl:node-set($horizAlignment)/StartStation">Out of range</xsl:when>
+    <xsl:when test="$station &gt; msxsl:node-set($horizAlignment)/EndStation">Out of range</xsl:when>
+    <xsl:otherwise>
+      <xsl:for-each select="msxsl:node-set($horizAlignment)/*[(name(.) != 'StartStation') and (name(.) != 'EndStation') and (name(.) != 'StartPoint')]">
+        <xsl:variable name="isStartStn">
+          <xsl:choose>
+            <xsl:when test="concat(substring('-',2 - (($station - StartStation) &lt; 0)), '1') * ($station - StartStation) &lt; 0.001">true</xsl:when>
+            <xsl:otherwise>false</xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+        <xsl:variable name="isEndStn">
+          <xsl:choose>
+            <xsl:when test="concat(substring('-',2 - (($station - EndStation) &lt; 0)), '1') * ($station - EndStation) &lt; 0.001">true</xsl:when>
+            <xsl:otherwise>false</xsl:otherwise>
+          </xsl:choose>
+        </xsl:variable>
+        <xsl:if test="($isStartStn = 'true') or (($isEndStn = 'true') and (position() = last())) or
+                      (($station &gt; StartStation) and ($station &lt; EndStation) and (position() != last())) or
+                      (($station &gt; StartStation) and ($station &lt; EndStation))">
+          <xsl:choose>
+            <xsl:when test="name(.) = 'Straight'">
+              <xsl:value-of select="StartAzimuth"/>
+            </xsl:when>
+
+            <xsl:when test="name(.) = 'Arc'">
+              <xsl:variable name="deltaAngle" select="(($station - StartStation) div Radius) * 180.0 div $Pi"/>
+              <xsl:choose>
+                <xsl:when test="Direction = 'Right'">
+                  <xsl:call-template name="NormalisedAngle">
+                    <xsl:with-param name="angle" select="StartAzimuth + $deltaAngle"/>
+                  </xsl:call-template>
+                </xsl:when>
+                <xsl:otherwise>
+                  <xsl:call-template name="NormalisedAngle">
+                    <xsl:with-param name="angle" select="StartAzimuth - $deltaAngle"/>
+                  </xsl:call-template>
+                </xsl:otherwise>
+              </xsl:choose>
+            </xsl:when>
+
+            <xsl:when test="name(.) = 'EntrySpiral'">
+              <xsl:variable name="deflection">
+                <xsl:choose>
+                  <xsl:when test="$spiralType = 'NSWCubicParabola'">
+                    <xsl:variable name="transitionXc">
+                      <xsl:call-template name="CalcNSWTransitionXc">
+                        <xsl:with-param name="length" select="Length"/>
+                        <xsl:with-param name="smallRadius" select="EndRadius"/>
+                        <xsl:with-param name="largeRadius" select="StartRadius"/>
+                      </xsl:call-template>
+                    </xsl:variable>
+
+                    <xsl:call-template name="CalcNSWDeflectionAtDistance">
+                      <xsl:with-param name="smallRadius" select="EndRadius"/>
+                      <xsl:with-param name="largeRadius" select="StartRadius"/>
+                      <xsl:with-param name="length" select="Length"/>
+                      <xsl:with-param name="spiralDist" select="$station - StartStation"/>
+                      <xsl:with-param name="transitionXc" select="$transitionXc"/>
+                    </xsl:call-template>
+                  </xsl:when>
+                  <xsl:otherwise> <!-- Clothoid spiral, Cubic spiral, Bloss spiral, CubicParabola or KoreanCubicParabola -->
+                    <xsl:variable name="spiralVals">
+                      <xsl:call-template name="CalcSpiral">
+                        <xsl:with-param name="smallRadius" select="EndRadius"/>
+                        <xsl:with-param name="largeRadius" select="StartRadius"/>
+                        <xsl:with-param name="length" select="Length"/>
+                        <xsl:with-param name="spiralDist" select="$station - StartStation"/>
+                        <xsl:with-param name="spiralType" select="$spiralType"/>
+                      </xsl:call-template>
+                    </xsl:variable>
+                    <xsl:value-of select="msxsl:node-set($spiralVals)/deflection"/>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+              <xsl:choose>
+                <xsl:when test="Direction = 'Right'">
+                  <xsl:call-template name="NormalisedAngle">
+                    <xsl:with-param name="angle" select="StartAzimuth + $deflection"/>
+                  </xsl:call-template>
+                </xsl:when>
+                <xsl:otherwise>
+                  <xsl:call-template name="NormalisedAngle">
+                    <xsl:with-param name="angle" select="StartAzimuth - $deflection"/>
+                  </xsl:call-template>
+                </xsl:otherwise>
+              </xsl:choose>
+            </xsl:when>
+
+            <xsl:when test="name(.) = 'ExitSpiral'">
+              <xsl:variable name="deflection">
+                <xsl:choose>
+                  <xsl:when test="$spiralType = 'NSWCubicParabola'">
+                    <xsl:variable name="transitionXc">
+                      <xsl:call-template name="CalcNSWTransitionXc">
+                        <xsl:with-param name="length" select="Length"/>
+                        <xsl:with-param name="smallRadius" select="StartRadius"/>
+                        <xsl:with-param name="largeRadius" select="EndRadius"/>
+                      </xsl:call-template>
+                    </xsl:variable>
+
+                    <xsl:call-template name="CalcNSWDeflectionAtDistance">
+                      <xsl:with-param name="smallRadius" select="StartRadius"/>
+                      <xsl:with-param name="largeRadius" select="EndRadius"/>
+                      <xsl:with-param name="length" select="Length"/>
+                      <xsl:with-param name="spiralDist" select="Length - ($station - StartStation)"/>
+                      <xsl:with-param name="transitionXc" select="$transitionXc"/>
+                    </xsl:call-template>
+                  </xsl:when>
+                  <xsl:otherwise> <!-- Clothoid spiral, Cubic spiral, Bloss spiral, CubicParabola or KoreanCubicParabola -->
+                    <xsl:variable name="spiralVals">
+                      <xsl:call-template name="CalcSpiral">
+                        <xsl:with-param name="smallRadius" select="StartRadius"/>
+                        <xsl:with-param name="largeRadius" select="EndRadius"/>
+                        <xsl:with-param name="length" select="Length"/>
+                        <xsl:with-param name="spiralDist" select="Length - ($station - StartStation)"/>
+                        <xsl:with-param name="spiralType" select="$spiralType"/>
+                      </xsl:call-template>
+                    </xsl:variable>
+                    <xsl:value-of select="msxsl:node-set($spiralVals)/deflection"/>
+                  </xsl:otherwise>
+                </xsl:choose>
+              </xsl:variable>
+              <xsl:choose>
+                <xsl:when test="Direction = 'Right'">
+                  <xsl:call-template name="NormalisedAngle">
+                    <xsl:with-param name="angle" select="EndAzimuth - $deflection"/>
+                  </xsl:call-template>
+                </xsl:when>
+                <xsl:otherwise>
+                  <xsl:call-template name="NormalisedAngle">
+                    <xsl:with-param name="angle" select="EndAzimuth + $deflection"/>
+                  </xsl:call-template>
+                </xsl:otherwise>
+              </xsl:choose>
+            </xsl:when>
+          </xsl:choose>
+        </xsl:if>
+      </xsl:for-each>
+    </xsl:otherwise>
+  </xsl:choose>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- *********** Return Appropriate Super and Widening ************** -->
+<!-- **************************************************************** -->
+<xsl:template name="GetSuperWidening">
+  <xsl:param name="station"/>
+  <xsl:param name="superWideningAssignment"/>
+
+  <!-- This template returns the superelevation and widening values on both the -->
+  <!-- left and right interpolated for the specified station.  The returned     -->
+  <!-- node set is of the form:
+          <pivot>Left/Crown/Right</pivot>
+          <leftSuper>number</leftSuper>
+          <rightSuper>number</rightSuper>
+          <leftWidening>number</leftWidening>
+          <rightWidening>number</rightWidening>
+  -->
+
+  <xsl:variable name="prevSuperWidening">
+    <xsl:choose>
+      <xsl:when test="(count(msxsl:node-set($superWideningAssignment)/*) &gt; 0) and ($station &gt;= msxsl:node-set($superWideningAssignment)/ApplySuperelevation[1]/Station)">
+        <xsl:for-each select="msxsl:node-set($superWideningAssignment)/ApplySuperelevation[(Station &lt;= $station)][last()]">
+          <xsl:element name="pivot" namespace="">
+            <xsl:value-of select="Pivot"/>
+          </xsl:element>
+          <xsl:element name="station" namespace="">
+            <xsl:value-of select="Station"/>
+          </xsl:element>
+          <xsl:element name="leftSuper" namespace="">
+            <xsl:value-of select="LeftSide/Superelevation"/>
+          </xsl:element>
+          <xsl:element name="leftWidening" namespace="">
+            <xsl:value-of select="LeftSide/Widening"/>
+          </xsl:element>
+          <xsl:element name="rightSuper" namespace="">
+            <xsl:value-of select="RightSide/Superelevation"/>
+          </xsl:element>
+          <xsl:element name="rightWidening" namespace="">
+            <xsl:value-of select="RightSide/Widening"/>
+          </xsl:element>
+        </xsl:for-each>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:element name="pivot" namespace="">
+          <xsl:value-of select="'Crown'"/>
+        </xsl:element>
+        <xsl:element name="station" namespace="">
+          <xsl:value-of select="NaN"/>
+        </xsl:element>
+        <xsl:element name="leftSuper" namespace="">
+          <xsl:value-of select="0"/>
+        </xsl:element>
+        <xsl:element name="leftWidening" namespace="">
+          <xsl:value-of select="0"/>
+        </xsl:element>
+        <xsl:element name="rightSuper" namespace="">
+          <xsl:value-of select="0"/>
+        </xsl:element>
+        <xsl:element name="rightWidening" namespace="">
+          <xsl:value-of select="0"/>
+        </xsl:element>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:variable name="nextSuperWidening">
+    <xsl:choose>
+      <xsl:when test="(count(msxsl:node-set($superWideningAssignment)/*) &gt; 0) and ($station &lt;= msxsl:node-set($superWideningAssignment)/ApplySuperelevation[last()]/Station)">
+        <xsl:for-each select="msxsl:node-set($superWideningAssignment)/ApplySuperelevation[(Station &gt;= $station)][1]">
+          <xsl:element name="pivot" namespace="">
+            <xsl:value-of select="Pivot"/>
+          </xsl:element>
+          <xsl:element name="station" namespace="">
+            <xsl:value-of select="Station"/>
+          </xsl:element>
+          <xsl:element name="leftSuper" namespace="">
+            <xsl:value-of select="LeftSide/Superelevation"/>
+          </xsl:element>
+          <xsl:element name="leftWidening" namespace="">
+            <xsl:value-of select="LeftSide/Widening"/>
+          </xsl:element>
+          <xsl:element name="rightSuper" namespace="">
+            <xsl:value-of select="RightSide/Superelevation"/>
+          </xsl:element>
+          <xsl:element name="rightWidening" namespace="">
+            <xsl:value-of select="RightSide/Widening"/>
+          </xsl:element>
+        </xsl:for-each>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:element name="pivot" namespace="">
+          <xsl:value-of select="'Crown'"/>
+        </xsl:element>
+        <xsl:element name="station" namespace="">
+          <xsl:value-of select="NaN"/>
+        </xsl:element>
+        <xsl:element name="leftSuper" namespace="">
+          <xsl:value-of select="0"/>
+        </xsl:element>
+        <xsl:element name="leftWidening" namespace="">
+          <xsl:value-of select="0"/>
+        </xsl:element>
+        <xsl:element name="rightSuper" namespace="">
+          <xsl:value-of select="0"/>
+        </xsl:element>
+        <xsl:element name="rightWidening" namespace="">
+          <xsl:value-of select="0"/>
+        </xsl:element>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:variable>
+
+  <xsl:element name="pivot" namespace="">
+    <xsl:value-of select="msxsl:node-set($prevSuperWidening)/pivot"/>
+  </xsl:element>
+
+  <xsl:element name="leftSuper" namespace="">
+    <xsl:choose>  <!-- If both the previous or next station values are null return null super grade -->
+      <xsl:when test="(string(number(msxsl:node-set($prevSuperWidening)/station)) = 'NaN') and
+                      (string(number(msxsl:node-set($nextSuperWidening)/station)) = 'NaN')">NaN</xsl:when>
+
+      <xsl:when test="(string(number(msxsl:node-set($nextSuperWidening)/station)) = 'NaN')">
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/leftSuper"/>  <!-- Past the end of the super table definition - use the last super definition -->
+      </xsl:when>
+
+      <xsl:when test="msxsl:node-set($prevSuperWidening)/station = msxsl:node-set($nextSuperWidening)/station">
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/leftSuper"/>  <!-- Same stations so directly use super value -->
+      </xsl:when>
+
+      <xsl:otherwise>  <!-- Interpolate the super value -->
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/leftSuper +
+                              (msxsl:node-set($nextSuperWidening)/leftSuper - msxsl:node-set($prevSuperWidening)/leftSuper) *
+                              ($station - msxsl:node-set($prevSuperWidening)/station) div
+                              (msxsl:node-set($nextSuperWidening)/station - msxsl:node-set($prevSuperWidening)/station)"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:element>
+
+  <xsl:element name="rightSuper" namespace="">
+    <xsl:choose>  <!-- If both the previous or next station values are null return null super grade -->
+      <xsl:when test="(string(number(msxsl:node-set($prevSuperWidening)/station)) = 'NaN') and
+                      (string(number(msxsl:node-set($nextSuperWidening)/station)) = 'NaN')">NaN</xsl:when>
+
+      <xsl:when test="(string(number(msxsl:node-set($nextSuperWidening)/station)) = 'NaN')">
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/rightSuper"/>  <!-- Past the end of the super table definition - use the last super definition -->
+      </xsl:when>
+
+      <xsl:when test="msxsl:node-set($prevSuperWidening)/station = msxsl:node-set($nextSuperWidening)/station">
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/rightSuper"/>  <!-- Same stations so directly use super value -->
+      </xsl:when>
+
+      <xsl:otherwise>  <!-- Interpolate the super value -->
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/rightSuper +
+                              (msxsl:node-set($nextSuperWidening)/rightSuper - msxsl:node-set($prevSuperWidening)/rightSuper) *
+                              ($station - msxsl:node-set($prevSuperWidening)/station) div
+                              (msxsl:node-set($nextSuperWidening)/station - msxsl:node-set($prevSuperWidening)/station)"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:element>
+
+  <xsl:element name="leftWidening" namespace="">
+    <xsl:choose>  <!-- If either the previous or next station values are null return 0 -->
+      <xsl:when test="(string(number(msxsl:node-set($prevSuperWidening)/station)) = 'NaN') or
+                      (string(number(msxsl:node-set($nextSuperWidening)/station)) = 'NaN')">0</xsl:when>
+
+      <xsl:when test="(string(number(msxsl:node-set($nextSuperWidening)/station)) = 'NaN')">
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/leftWidening"/>  <!-- Past the end of the super table definition - use the last widening definition -->
+      </xsl:when>
+
+      <xsl:when test="msxsl:node-set($prevSuperWidening)/station = msxsl:node-set($nextSuperWidening)/station">
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/leftWidening"/>  <!-- Same stations so directly use widening value -->
+      </xsl:when>
+
+      <xsl:otherwise>  <!-- Interpolate the super value -->
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/leftWidening +
+                              (msxsl:node-set($nextSuperWidening)/leftWidening - msxsl:node-set($prevSuperWidening)/leftWidening) *
+                              ($station - msxsl:node-set($prevSuperWidening)/station) div
+                              (msxsl:node-set($nextSuperWidening)/station - msxsl:node-set($prevSuperWidening)/station)"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:element>
+
+  <xsl:element name="rightWidening" namespace="">
+    <xsl:choose>  <!-- If either the previous or next station values are null return 0 -->
+      <xsl:when test="(string(number(msxsl:node-set($prevSuperWidening)/station)) = 'NaN') or
+                      (string(number(msxsl:node-set($nextSuperWidening)/station)) = 'NaN')">0</xsl:when>
+
+      <xsl:when test="(string(number(msxsl:node-set($nextSuperWidening)/station)) = 'NaN')">
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/rightWidening"/>  <!-- Past the end of the super table definition - use the last widening definition -->
+      </xsl:when>
+
+      <xsl:when test="msxsl:node-set($prevSuperWidening)/station = msxsl:node-set($nextSuperWidening)/station">
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/rightWidening"/>  <!-- Same stations so directly use widening value -->
+      </xsl:when>
+
+      <xsl:otherwise>
+        <xsl:value-of select="msxsl:node-set($prevSuperWidening)/rightWidening +
+                              (msxsl:node-set($nextSuperWidening)/rightWidening - msxsl:node-set($prevSuperWidening)/rightWidening) *
+                              ($station - msxsl:node-set($prevSuperWidening)/station) div
+                              (msxsl:node-set($nextSuperWidening)/station - msxsl:node-set($prevSuperWidening)/station)"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:element>
+
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- **** Return The Delta Elevation Value Interpolated By Grade **** -->
+<!-- **************************************************************** -->
+<xsl:template name="InterpolatedDeltaElevByGrade">
+  <xsl:param name="prevXSDeltas"/>
+  <xsl:param name="nextXSDeltas"/>
+  <xsl:param name="station"/>
+  <xsl:param name="prevTemplateStation"/>
+  <xsl:param name="nextTemplateStation"/>
+  <xsl:param name="currPos"/>
+
+  <xsl:variable name="gradeInterpDeltas">
+    <xsl:for-each select="msxsl:node-set($prevXSDeltas)/xsPos">
+      <xsl:if test="position() &lt;= $currPos">
+        <xsl:variable name="thisPos" select="position()"/>
+        <xsl:variable name="prevXSGradeAndLengthToPos">  <!-- Grade and length of element to the current position on the previous cross-section -->
+          <xsl:variable name="priorPtDeltaElev">
+            <xsl:choose>
+              <xsl:when test="position() = 1">0</xsl:when>
+              <xsl:otherwise>
+                <xsl:value-of select="sum(msxsl:node-set($prevXSDeltas)/xsPos[position() &lt; $thisPos]/deltaElev)"/>
+              </xsl:otherwise>
+            </xsl:choose>
+          </xsl:variable>
+
+          <xsl:variable name="priorPtOffset">
+            <xsl:choose>
+              <xsl:when test="position() = 1">0</xsl:when>
+              <xsl:otherwise>
+                <xsl:value-of select="sum(msxsl:node-set($prevXSDeltas)/xsPos[position() &lt; $thisPos]/deltaOffset)"/>
+              </xsl:otherwise>
+            </xsl:choose>
+          </xsl:variable>
+
+          <xsl:variable name="thisDeltaElev" select="sum(msxsl:node-set($prevXSDeltas)/xsPos[position() &lt;= $thisPos]/deltaElev)"/>
+          <xsl:variable name="thisOffset" select="sum(msxsl:node-set($prevXSDeltas)/xsPos[position() &lt;= $thisPos]/deltaOffset)"/>
+
+          <xsl:element name="grade" namespace="">
+            <xsl:value-of select="($thisDeltaElev - $priorPtDeltaElev) div ($thisOffset - $priorPtOffset)"/>
+          </xsl:element>
+
+          <xsl:element name="length" namespace="">
+            <xsl:value-of select="$thisOffset - $priorPtOffset"/>
+          </xsl:element>
+        </xsl:variable>
+
+        <xsl:variable name="nextXSGradeAndLengthToPos">  <!-- Grade and length of element to the current position on the next cross-section -->
+          <xsl:variable name="priorPtDeltaElev">
+            <xsl:choose>
+              <xsl:when test="position() = 1">0</xsl:when>
+              <xsl:otherwise>
+                <xsl:value-of select="sum(msxsl:node-set($nextXSDeltas)/xsPos[position() &lt; $thisPos]/deltaElev)"/>
+              </xsl:otherwise>
+            </xsl:choose>
+          </xsl:variable>
+
+          <xsl:variable name="priorPtOffset">
+            <xsl:choose>
+              <xsl:when test="position() = 1">0</xsl:when>
+              <xsl:otherwise>
+                <xsl:value-of select="sum(msxsl:node-set($nextXSDeltas)/xsPos[position() &lt; $thisPos]/deltaOffset)"/>
+              </xsl:otherwise>
+            </xsl:choose>
+          </xsl:variable>
+
+          <xsl:variable name="thisDeltaElev" select="sum(msxsl:node-set($nextXSDeltas)/xsPos[position() &lt;= $thisPos]/deltaElev)"/>
+          <xsl:variable name="thisOffset" select="sum(msxsl:node-set($nextXSDeltas)/xsPos[position() &lt;= $thisPos]/deltaOffset)"/>
+
+          <xsl:element name="grade" namespace="">
+            <xsl:value-of select="($thisDeltaElev - $priorPtDeltaElev) div ($thisOffset - $priorPtOffset)"/>
+          </xsl:element>
+
+          <xsl:element name="length" namespace="">
+            <xsl:value-of select="$thisOffset - $priorPtOffset"/>
+          </xsl:element>
+        </xsl:variable>
+
+        <xsl:variable name="interpGrade">
+          <xsl:call-template name="InterpolatedValueByStation">
+            <xsl:with-param name="startValue" select="msxsl:node-set($prevXSGradeAndLengthToPos)/grade"/>
+            <xsl:with-param name="endValue" select="msxsl:node-set($nextXSGradeAndLengthToPos)/grade"/>
+            <xsl:with-param name="startStn" select="$prevTemplateStation"/>
+            <xsl:with-param name="endStn" select="$nextTemplateStation"/>
+            <xsl:with-param name="station" select="$station"/>
+          </xsl:call-template>
+        </xsl:variable>
+
+        <xsl:variable name="interpLength">
+          <xsl:call-template name="InterpolatedValueByStation">
+            <xsl:with-param name="startValue" select="msxsl:node-set($prevXSGradeAndLengthToPos)/length"/>
+            <xsl:with-param name="endValue" select="msxsl:node-set($nextXSGradeAndLengthToPos)/length"/>
+            <xsl:with-param name="startStn" select="$prevTemplateStation"/>
+            <xsl:with-param name="endStn" select="$nextTemplateStation"/>
+            <xsl:with-param name="station" select="$station"/>
+          </xsl:call-template>
+        </xsl:variable>
+
+        <xsl:element name="deltaElev" namespace="">
+          <xsl:value-of select="$interpLength * $interpGrade"/>
+        </xsl:element>
+      </xsl:if>
+    </xsl:for-each>
+  </xsl:variable>
+
+  <xsl:value-of select="sum(msxsl:node-set($gradeInterpDeltas)/deltaElev)"/>
+</xsl:template>
+
+
+<!-- **************************************************************** -->
+<!-- ********* Return Interpolated Value Based On Station *********** -->
+<!-- **************************************************************** -->
+<xsl:template name="InterpolatedValueByStation">
+  <xsl:param name="startValue"/>
+  <xsl:param name="endValue"/>
+  <xsl:param name="startStn"/>
+  <xsl:param name="endStn"/>
+  <xsl:param name="station"/>
+
+  <xsl:value-of select="($startValue + ($endValue - $startValue) * ($station - $startStn) div ($endStn - $startStn))"/>
+</xsl:template>
+
+
+</xsl:stylesheet>
+Alignment Routines.xsl
+
+Displaying Alignment Routines.xsl.

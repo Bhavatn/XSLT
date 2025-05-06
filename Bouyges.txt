@@ -1,0 +1,486 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:msxsl="urn:schemas-microsoft-com:xslt">
+	<!-- **************************************************************** -->
+	<!-- Karlsruhe                                                                                                                 -->
+	<!--                                                                                                                                  -->
+	<!-- Version     : 1.00                                                                                                      -->
+	<!-- Date         : November  2006                                                                                  -->
+	<!-- Author      : C. Breuer                                                                                              -->
+	<!--                                                                                                                                   -->
+	<!-- **************************************************************** -->
+	<xsl:output method="text" omit-xml-declaration="yes" encoding="ISO-8859-1"/>
+	<xsl:decimal-format name="Standard" 
+                    decimal-separator="."
+                    grouping-separator=","
+                    infinity="Infinity"
+                    minus-sign="-"
+                    NaN="NaN"
+                    percent="%"
+                    per-mille="&#2030;"
+                    zero-digit="0" 
+                    digit="#" 
+                    pattern-separator=";" />
+	<xsl:variable name="FormatDistanz" select="'0.000'"/>
+	<xsl:variable name="DefaultText" select="''"/>
+	<xsl:variable name="fileExt" select="'txt'"/>
+	<!-- **************************************************************** -->
+	<!-- ************ Define search keys to speed up searchs ************ -->
+	<!-- **************************************************************** -->
+	<xsl:key name="StationID-search" match="//JOBFile/FieldBook/StationRecord" use="@ID"/>
+	<xsl:key name="TargetID-search" match="//JOBFile/FieldBook/TargetRecord" use="@ID"/>
+	<xsl:key name="AtmosphereID-search" match="//JOBFile/FieldBook/AtmosphereRecord" use="@ID"/>
+	<xsl:key name="BBRecord-search" match="//JOBFile/FieldBook/BackBearingRecord" use="StationRecordID"/>
+	<xsl:key name="PRecord-search" match="//JOBFile/FieldBook/PointRecord" use="Name"/>
+	<!-- **************************************************************** -->
+	<!-- Units in JOB-File                                                -->
+	<!--                                                                  -->
+	<!-- Coordinates  : Meter                                             -->
+	<!-- Distances    : Meter                                             -->
+	<!-- Angles       : Gons        >>>   Conversion Factor               -->
+	<!-- Temperature  : Celsius                                           -->
+	<!-- Pressure     : hPas                                              -->
+	<!-- **************************************************************** -->
+	<xsl:variable name="AngleConvFactor" select="1.111111111111"/>
+	<!-- **************************************************************** -->
+	<!-- ************************** Main Loop *************************** -->
+	<!-- **************************************************************** -->
+	<xsl:template match="/">
+		<xsl:value-of select="'Titulaire du contrat '"/>
+		<xsl:value-of select="/JOBFile/FieldBook/JobPropertiesRecord[last()]/Reference"/>
+		<xsl:call-template name="NewLine"/>
+		<xsl:value-of select="'N° de contrat '"/>
+		<xsl:value-of select="/JOBFile/FieldBook/JobPropertiesRecord[last()]/Description"/>
+		<xsl:call-template name="NewLine"/>
+		<xsl:call-template name="NewLine"/>
+		<xsl:call-template name="NewLine"/>
+		<xsl:call-template name="NewLine"/>
+		<xsl:call-template name="NewLine"/>
+		<xsl:call-template name="PadRight">
+			<xsl:with-param name="Text" select="concat('Job : ', /JOBFile/@jobName)"/>
+			<xsl:with-param name="Width" select="24"/>
+		</xsl:call-template>
+		<xsl:call-template name="PadRight">
+			<xsl:with-param name="Text" select="concat('Opérateur : ', /JOBFile/FieldBook/JobPropertiesRecord[last()]/Operator)"/>
+			<xsl:with-param name="Width" select="36"/>
+		</xsl:call-template>
+		<xsl:call-template name="PadRight">
+			<xsl:with-param name="Text" select="concat('Date : ', substring(/JOBFile/@TimeStamp, 9, 2), '/', substring(/JOBFile/@TimeStamp, 6, 2), '/', substring(/JOBFile/@TimeStamp, 1, 4))"/>
+			<xsl:with-param name="Width" select="21"/>
+		</xsl:call-template>
+		<xsl:call-template name="PadRight">
+			<xsl:with-param name="Text" select="concat('Heure : ', substring(/JOBFile/@TimeStamp, 12, 2), 'h', substring(/JOBFile/@TimeStamp, 15, 2))"/>
+			<xsl:with-param name="Width" select="21"/>
+		</xsl:call-template>
+		<xsl:call-template name="NewLine"/>
+		<xsl:apply-templates select="JOBFile/FieldBook"/>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- ***************** FieldBook Node Processing ******************** -->
+	<!-- **************************************************************** -->
+	<xsl:template match="FieldBook">
+		<xsl:variable name="outputData">
+			<!-- Add all the output data to the variable $outputData so that it can be further processed later -->
+			<xsl:for-each select="*">
+				<xsl:if test="name(current()) = 'PointRecord' and Circle">
+					<xsl:apply-templates select="current()"/>
+				</xsl:if>
+			</xsl:for-each>
+		</xsl:variable>
+		<xsl:variable name="outputData2">
+			<!-- Add all the backsight data to the variable $outputData2 so that it can be further processed later -->
+			<xsl:for-each select="*">
+				<xsl:if test="name(current()) = 'PointRecord' and Classification = 'BackSight'">
+					<xsl:apply-templates select="current()"/>
+				</xsl:if>
+			</xsl:for-each>
+		</xsl:variable>
+		<!-- Now process the $outputData variable to create the output file -->
+		<xsl:for-each select="msxsl:node-set($outputData)/*">
+			<xsl:choose>
+				<xsl:when test="name(current()) = 'Point'">
+					<!-- Observation Output -->
+					<!-- ****************** -->
+					<xsl:variable name="CurrentStationID" select="STID"/>
+					<xsl:if test="(position() = 1) or ($CurrentStationID != preceding-sibling::*[1]/STID)">
+						<xsl:call-template name="NewLine"/>
+						<xsl:call-template name="PadRight">
+							<xsl:with-param name="Text" select="concat('Station : ', Station)"/>
+							<xsl:with-param name="Width" select="24"/>
+						</xsl:call-template>
+						<xsl:call-template name="PadRight">
+							<xsl:with-param name="Text" select="concat('X = ', format-number(StationEast,'#0.000'))"/>
+							<xsl:with-param name="Width" select="16"/>
+						</xsl:call-template>
+						<xsl:call-template name="PadRight">
+							<xsl:with-param name="Text" select="concat('Y = ', format-number(StationNorth,'#0.000'))"/>
+							<xsl:with-param name="Width" select="16"/>
+						</xsl:call-template>
+						<xsl:call-template name="PadRight">
+							<xsl:with-param name="Text" select="concat('Z = ', format-number(StationEle,'#0.000'))"/>
+							<xsl:with-param name="Width" select="12"/>
+						</xsl:call-template>
+						<xsl:call-template name="PadRight">
+							<xsl:with-param name="Text" select="concat('Ht.Instr. = ', format-number(InstrumentH,'#0.000'))"/>
+							<xsl:with-param name="Width" select="17"/>
+						</xsl:call-template>
+						<xsl:call-template name="NewLine"/>
+						<xsl:call-template name="NewLine"/>
+						<xsl:value-of select="'&gt; CALCUL DE LA STATION'"/>
+						<xsl:if test="StType = 'StationSetup'">
+							<xsl:value-of select="' STANDARD'"/>
+						</xsl:if>
+						<xsl:if test="StType = 'StandardResection'">
+							<xsl:value-of select="' LIBRE'"/>
+						</xsl:if>
+						<xsl:if test="StType = 'StationSetupPlus'">
+							<xsl:value-of select="' STANDARD PLUS'"/>
+						</xsl:if>
+						<xsl:call-template name="NewLine"/>
+						<xsl:call-template name="NewLine"/>
+						<xsl:value-of select="'  - Références utilisées'"/>
+						<xsl:call-template name="NewLine"/>
+						<xsl:value-of select="'            N°    Prisme         Ht.refl.(m)'"/>
+						<xsl:call-template name="NewLine"/>
+						<xsl:for-each select="msxsl:node-set($outputData2)/*">
+							<xsl:choose>
+								<xsl:when test="name(current()) = 'Point' and $CurrentStationID = STID">
+									<xsl:call-template name="PadLeft">
+										<xsl:with-param name="Text" select="ObsPoint"/>
+										<xsl:with-param name="Width" select="14"/>
+									</xsl:call-template>
+									<xsl:value-of select="'  '"/>
+									<xsl:call-template name="PadRight">
+										<xsl:with-param name="Text" select="PrismType"/>
+										<xsl:with-param name="Width" select="15"/>
+									</xsl:call-template>
+									<xsl:call-template name="PadLeft">
+										<xsl:with-param name="Text" select="format-number(TargetH,'#0.000')"/>
+										<xsl:with-param name="Width" select="9"/>
+									</xsl:call-template>
+									<xsl:call-template name="NewLine"/>
+								</xsl:when>
+							</xsl:choose>
+						</xsl:for-each>
+						<xsl:if test="EmqOri != ''">
+							<xsl:value-of select="'  - Résultat :'"/>
+							<xsl:call-template name="NewLine"/>
+							<xsl:value-of select="'       '"/>
+						</xsl:if>
+						<xsl:if test="StType = 'StandardResection'">
+							<xsl:value-of select="concat('Emq X = ', format-number(EmqX,'#0.0000'), '  ', 'Emq Y = ', format-number(EmqZ,'#0.0000'), '  ', 'Emq Z = ', format-number(EmqX,'#0.0000'), '  ')"/>
+						</xsl:if>
+						<xsl:if test="EmqOri != ''">
+							<xsl:value-of select="concat('Emq ORI = ', format-number(EmqOri,'#0.0000'))"/>
+							<xsl:call-template name="NewLine"/>
+						</xsl:if>
+						<xsl:call-template name="NewLine"/>
+						<xsl:value-of select="'&gt; MESURE'"/>
+						<xsl:call-template name="NewLine"/>
+						<xsl:call-template name="NewLine"/>
+						<xsl:value-of select="'   N° Point Angle Hz.(g) Angle V.(g) Dist./P(m)     Prisme     Ht.refl.(m)        X(m)          Y(m)         Z(m)'"/>
+						<xsl:call-template name="NewLine"/>
+						<xsl:call-template name="NewLine"/>
+					</xsl:if>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="ObsPoint"/>
+						<xsl:with-param name="Width" select="10"/>
+					</xsl:call-template>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="format-number(Hz * $AngleConvFactor,'#0.0000')"/>
+						<xsl:with-param name="Width" select="11"/>
+					</xsl:call-template>
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="format-number(V * $AngleConvFactor,'#0.0000')"/>
+						<xsl:with-param name="Width" select="12"/>
+					</xsl:call-template>
+					<xsl:choose>
+						<xsl:when test="PPM != ''">
+							<xsl:call-template name="PadLeft">
+								<xsl:with-param name="Text" select="format-number(Dist + PrismC + (PPM * Dist * 0.000001),'#0.000')"/>
+								<xsl:with-param name="Width" select="12"/>
+							</xsl:call-template>
+						</xsl:when>
+						<xsl:otherwise>
+							<xsl:call-template name="PadLeft">
+								<xsl:with-param name="Text" select="format-number(Dist + PrismC,'#0.000')"/>
+								<xsl:with-param name="Width" select="12"/>
+							</xsl:call-template>
+						</xsl:otherwise>
+					</xsl:choose>
+					
+					<xsl:value-of select="'    '"/>
+					<xsl:call-template name="PadRight">
+						<xsl:with-param name="Text" select="PrismType"/>
+						<xsl:with-param name="Width" select="12"/>
+					</xsl:call-template>
+					
+					<xsl:call-template name="PadLeft">
+						<xsl:with-param name="Text" select="format-number(TargetH,'#0.000')"/>
+						<xsl:with-param name="Width" select="9"/>
+					</xsl:call-template>
+					<xsl:if test="SightType != 'BackSight'">
+						<xsl:call-template name="PadLeft">
+							<xsl:with-param name="Text" select="format-number(Rechtswert,'#0.000')"/>
+							<xsl:with-param name="Width" select="18"/>
+						</xsl:call-template>
+						<xsl:call-template name="PadLeft">
+							<xsl:with-param name="Text" select="format-number(Hochwert,'#0.000')"/>
+							<xsl:with-param name="Width" select="14"/>
+						</xsl:call-template>
+						<xsl:call-template name="PadLeft">
+							<xsl:with-param name="Text" select="format-number(Hoehe,'#0.000')"/>
+							<xsl:with-param name="Width" select="12"/>
+						</xsl:call-template>
+					</xsl:if>
+					<xsl:if test="SightType = 'BackSight'">
+						<xsl:call-template name="PadLeft">
+							<xsl:with-param name="Text" select="'-'"/>
+							<xsl:with-param name="Width" select="18"/>
+						</xsl:call-template>
+						<xsl:call-template name="PadLeft">
+							<xsl:with-param name="Text" select="'-'"/>
+							<xsl:with-param name="Width" select="14"/>
+						</xsl:call-template>
+						<xsl:call-template name="PadLeft">
+							<xsl:with-param name="Text" select="'-'"/>
+							<xsl:with-param name="Width" select="12"/>
+						</xsl:call-template>
+					</xsl:if>
+					<xsl:call-template name="NewLine"/>
+				</xsl:when>
+			</xsl:choose>
+		</xsl:for-each>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- ******************** PointRecord Output ************************ -->
+	<!-- **************************************************************** -->
+	<xsl:template match="PointRecord">
+		<xsl:if test="Deleted = 'false'">
+			<xsl:call-template name="Observation"/>
+		</xsl:if>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- **************** Observation Details Output ******************** -->
+	<!-- **************************************************************** -->
+	<xsl:template name="Observation">
+		<xsl:choose>
+			<xsl:when test="Circle">
+				<xsl:element name="Point">
+					<xsl:element name="STID">
+						<xsl:value-of select="StationID"/>
+					</xsl:element>
+					<xsl:variable name="FindStation">
+						<xsl:for-each select="key('StationID-search', StationID)[1]">
+							<xsl:value-of select="StationName"/>
+						</xsl:for-each>
+					</xsl:variable>
+					<xsl:element name="StType">
+						<xsl:for-each select="key('StationID-search', StationID)[1]">
+							<xsl:value-of select="StationType"/>
+						</xsl:for-each>
+					</xsl:element>
+					<xsl:variable name="stnNorth">
+						<xsl:for-each select="/JOBFile/Reductions/Point[Name = $FindStation]">
+							<xsl:value-of select="Grid/North"/>
+						</xsl:for-each>
+					</xsl:variable>
+					<xsl:variable name="stnEast">
+						<xsl:for-each select="/JOBFile/Reductions/Point[Name = $FindStation]">
+							<xsl:value-of select="Grid/East"/>
+						</xsl:for-each>
+					</xsl:variable>
+					<xsl:variable name="stnElevation">
+						<xsl:for-each select="/JOBFile/Reductions/Point[Name = $FindStation]">
+							<xsl:value-of select="Grid/Elevation"/>
+						</xsl:for-each>
+					</xsl:variable>
+					<xsl:element name="Station">
+						<xsl:value-of select="$FindStation"/>
+					</xsl:element>
+					<xsl:element name="StationNorth">
+						<xsl:value-of select="$stnNorth"/>
+					</xsl:element>
+					<xsl:element name="StationEast">
+						<xsl:value-of select="$stnEast"/>
+					</xsl:element>
+					<xsl:element name="StationEle">
+						<xsl:value-of select="$stnElevation"/>
+					</xsl:element>
+					<xsl:element name="InstrumentH">
+						<xsl:for-each select="key('StationID-search', StationID)[1]">
+							<xsl:value-of select="TheodoliteHeight"/>
+						</xsl:for-each>
+					</xsl:element>
+					<xsl:variable name="AtmoID">
+						<xsl:for-each select="key('StationID-search', StationID)[1]">
+							<xsl:value-of select="AtmosphereID"/>
+						</xsl:for-each>
+					</xsl:variable>
+					<xsl:element name="SightType">
+						<xsl:value-of select="Classification"/>
+					</xsl:element>
+					<xsl:element name="PPM">
+						<xsl:for-each select="key('AtmosphereID-search', $AtmoID)[1]">
+							<xsl:value-of select="PPM"/>
+						</xsl:for-each>
+					</xsl:element>
+					<xsl:variable name="bsName" select="Name"/>
+					<xsl:variable name="bsNorth">
+						<xsl:for-each select="/JOBFile/Reductions/Point[Name = $bsName]">
+							<xsl:value-of select="Grid/North"/>
+						</xsl:for-each>
+					</xsl:variable>
+					<xsl:variable name="bsEast">
+						<xsl:for-each select="/JOBFile/Reductions/Point[Name = $bsName]">
+							<xsl:value-of select="Grid/East"/>
+						</xsl:for-each>
+					</xsl:variable>
+					<xsl:variable name="bsElevation">
+						<xsl:for-each select="/JOBFile/Reductions/Point[Name = $bsName]">
+							<xsl:value-of select="Grid/Elevation"/>
+						</xsl:for-each>
+					</xsl:variable>
+					<xsl:element name="BackSightNorth">
+						<xsl:value-of select="$bsNorth"/>
+					</xsl:element>
+					<xsl:element name="BackSightEast">
+						<xsl:value-of select="$bsEast"/>
+					</xsl:element>
+					<xsl:element name="BackSightEle">
+						<xsl:value-of select="$bsElevation"/>
+					</xsl:element>
+					<xsl:element name="ObsPoint">
+						<xsl:value-of select="Name"/>
+					</xsl:element>
+					<xsl:element name="Hz">
+						<xsl:value-of select="Circle/HorizontalCircle"/>
+					</xsl:element>
+					<xsl:element name="V">
+						<xsl:value-of select="Circle/VerticalCircle"/>
+					</xsl:element>
+					<xsl:element name="Dist">
+						<xsl:value-of select="Circle/EDMDistance"/>
+					</xsl:element>
+					<xsl:element name="Rechtswert">
+						<xsl:value-of select="ComputedGrid/East"/>
+					</xsl:element>
+					<xsl:element name="Hochwert">
+						<xsl:value-of select="ComputedGrid/North"/>
+					</xsl:element>
+					<xsl:element name="Hoehe">
+						<xsl:value-of select="ComputedGrid/Elevation"/>
+					</xsl:element>
+					<xsl:element name="FeatureCode">
+						<xsl:value-of select="Code"/>
+					</xsl:element>
+					<xsl:element name="TargetH">
+						<xsl:for-each select="key('TargetID-search', TargetID)[1]">
+							<xsl:value-of select="TargetHeight"/>
+						</xsl:for-each>
+					</xsl:element>
+					<xsl:element name="PrismC">
+						<xsl:for-each select="key('TargetID-search', TargetID)[1]">
+							<xsl:value-of select="PrismConstant"/>
+						</xsl:for-each>
+					</xsl:element>
+					<xsl:element name="PrismType">
+						<xsl:for-each select="key('TargetID-search', TargetID)[1]">
+							<xsl:value-of select="PrismType"/>
+						</xsl:for-each>
+					</xsl:element>
+					<xsl:element name="EmqOri">
+						<xsl:for-each select="key('BBRecord-search', StationID)[1]">
+							<xsl:value-of select="OrientationCorrectionStandardError"/>
+						</xsl:for-each>
+					</xsl:element>
+					<xsl:element name="EmqX">
+						<xsl:for-each select="key('PRecord-search', $FindStation)[1]">
+							<xsl:if test="Method = 'Resection'">
+								<xsl:value-of select="ResectionStandardErrors/EastStandardError"/>
+							</xsl:if>
+						</xsl:for-each>
+					</xsl:element>
+					<xsl:element name="EmqY">
+						<xsl:for-each select="key('PRecord-search', $FindStation)[1]">
+							<xsl:if test="Method = 'Resection'">
+								<xsl:value-of select="ResectionStandardErrors/NorthStandardError"/>
+							</xsl:if>
+						</xsl:for-each>
+					</xsl:element>
+					<xsl:element name="EmqZ">
+						<xsl:for-each select="key('PRecord-search', $FindStation)[1]">
+							<xsl:if test="Method = 'Resection'">
+								<xsl:value-of select="ResectionStandardErrors/ElevationStandardError"/>
+							</xsl:if>
+						</xsl:for-each>
+					</xsl:element>
+				</xsl:element>
+			</xsl:when>
+		</xsl:choose>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- ********************** New Line Output ************************* -->
+	<!-- **************************************************************** -->
+	<xsl:template name="NewLine">
+		<xsl:text>&#xa;</xsl:text>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- *********** Pad a string to the left with spaces *************** -->
+	<!-- **************************************************************** -->
+	<xsl:template name="PadLeft">
+		<xsl:param name="Text"/>
+		<xsl:param name="Width"/>
+		<xsl:variable name="KonvText">
+			<xsl:choose>
+				<xsl:when test="$Text = 'NaN'">
+					<xsl:value-of select="$DefaultText"/>
+				</xsl:when>
+				<xsl:otherwise>
+					<xsl:value-of select="$Text"/>
+				</xsl:otherwise>
+			</xsl:choose>
+		</xsl:variable>
+		<xsl:choose>
+			<xsl:when test="$Width = 0">
+				<xsl:value-of select="normalize-space($KonvText)"/>
+			</xsl:when>
+			<xsl:otherwise>
+				<xsl:variable name="TempText" select="concat('                                       ', $KonvText)"/>
+				<xsl:value-of select="substring($TempText, string-length($TempText) - $Width + 1)"/>
+			</xsl:otherwise>
+		</xsl:choose>
+	</xsl:template>
+	<!-- **************************************************************** -->
+	<!-- *********** Pad a string to the right with spaces ************** -->
+	<!-- **************************************************************** -->
+	<xsl:template name="PadRight">
+		<xsl:param name="Text"/>
+		<xsl:param name="Width"/>
+		<xsl:variable name="KonvText">
+			<xsl:choose>
+				<xsl:when test="$Text = 'NaN'">
+					<xsl:value-of select="$DefaultText"/>
+				</xsl:when>
+				<xsl:otherwise>
+					<xsl:value-of select="$Text"/>
+				</xsl:otherwise>
+			</xsl:choose>
+		</xsl:variable>
+		<xsl:choose>
+			<xsl:when test="$Width = 0">
+				<xsl:value-of select="normalize-space($KonvText)"/>
+			</xsl:when>
+			<xsl:otherwise>
+				<xsl:variable name="TempText" select="concat($KonvText, '                                       ')"/>
+				<xsl:value-of select="substring($TempText, 1, $Width)"/>
+			</xsl:otherwise>
+		</xsl:choose>
+	</xsl:template>
+</xsl:stylesheet>
+<!-- Stylus Studio meta-information - (c) 2004-2005. Progress Software Corporation. All rights reserved.
+<metaInformation>
+<scenarios ><scenario default="yes" name="Scenario1" userelativepaths="yes" externalpreview="no" url="..\Test allnav.xml" htmlbaseurl="" outputurl="" processortype="internal" profilemode="0" profiledepth="" profilelength="" urlprofilexml="" commandline="" additionalpath="" additionalclasspath="" postprocessortype="none" postprocesscommandline="" postprocessadditionalpath="" postprocessgeneratedext=""/></scenarios><MapperMetaTag><MapperInfo srcSchemaPathIsRelative="yes" srcSchemaInterpretAsXML="no" destSchemaPath="" destSchemaRoot="" destSchemaPathIsRelative="yes" destSchemaInterpretAsXML="no"/><MapperBlockPosition><template match="/"></template><template name="Observation"></template><template match="StationRecord"></template></MapperBlockPosition></MapperMetaTag>
+</metaInformation>
+-->
